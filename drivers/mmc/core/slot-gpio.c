@@ -17,10 +17,6 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 
-#if defined(CONFIG_LGE_MMC_DYNAMIC_LOG)
-#include <linux/mmc/debug_log.h>
-#endif
-
 struct mmc_gpio {
 	int ro_gpio;
 	int cd_gpio;
@@ -29,23 +25,6 @@ struct mmc_gpio {
 	char cd_label[0]; /* Must be last entry */
 };
 
-#ifdef CONFIG_LGE_SHOW_SDCARD_DETECT_PIN_STATUS
-int mmc_gpio_get_status(struct mmc_host *host)
-{
-	int ret = -ENOSYS;
-	struct mmc_gpio *ctx = host->slot.handler_priv;
-
-	if (!ctx || !gpio_is_valid(ctx->cd_gpio))
-		goto out;
-
-	ret = !gpio_get_value_cansleep(ctx->cd_gpio) ^
-		!!(host->caps2 & MMC_CAP2_CD_ACTIVE_HIGH);
-out:
-	return ret;
-}
-
-EXPORT_SYMBOL(mmc_gpio_get_status);
-#else
 static int mmc_gpio_get_status(struct mmc_host *host)
 {
 	int ret = -ENOSYS;
@@ -59,7 +38,7 @@ static int mmc_gpio_get_status(struct mmc_host *host)
 out:
 	return ret;
 }
-#endif
+
 
 static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 {

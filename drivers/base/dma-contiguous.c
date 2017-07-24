@@ -41,7 +41,6 @@
 #include <linux/dma-removed.h>
 #include <linux/delay.h>
 #include <trace/events/kmem.h>
-#include <linux/delay.h>
 
 struct cma {
 	unsigned long	base_pfn;
@@ -75,9 +74,6 @@ static struct cma_map {
 static unsigned cma_map_count __initdata;
 static bool allow_memblock_alloc __initdata;
 
-#if defined(CONFIG_MACH_MSM8916_C70W_SKT_KR ) || defined(CONFIG_MACH_MSM8916_C70W_KT_KR) || defined(CONFIG_MACH_MSM8916_C70W_LGU_KR)
-extern int compare_revision(const char *revision);
-#endif
 static struct cma *cma_get_area(phys_addr_t base)
 {
 	int i;
@@ -236,16 +232,7 @@ int __init cma_fdt_scan(unsigned long node, const char *uname,
 	unsigned long addr_cells = dt_root_addr_cells;
 	phys_addr_t limit = MEMBLOCK_ALLOC_ANYWHERE;
 	const char *status;
-#if defined(CONFIG_MACH_MSM8916_C70W_SKT_KR ) || defined(CONFIG_MACH_MSM8916_C70W_KT_KR) || defined(CONFIG_MACH_MSM8916_C70W_LGU_KR)
-	const char *revision = NULL;
 
-	revision = of_get_flat_dt_prop(node, "revision", NULL);
-	if (revision)
-	{
-	    if(!compare_revision(revision))
-		return 0;
-	}
-#endif
 	if (!of_get_flat_dt_prop(node, "linux,reserve-contiguous-region", NULL))
 		return 0;
 
@@ -602,7 +589,7 @@ static void clear_cma_bitmap(struct cma *cma, unsigned long pfn, int count)
  * global one. Requires architecture specific get_dev_cma_area() helper
  * function.
  */
-unsigned long dma_alloc_from_contiguous(struct device *dev, int count,
+unsigned long dma_alloc_from_contiguous(struct device *dev, size_t count,
 				       unsigned int align)
 {
 	unsigned long mask, pfn = 0, pageno, start = 0;
@@ -617,10 +604,13 @@ unsigned long dma_alloc_from_contiguous(struct device *dev, int count,
 	if (align > CONFIG_CMA_ALIGNMENT)
 		align = CONFIG_CMA_ALIGNMENT;
 
-	pr_debug("%s(cma %p, count %d, align %d)\n", __func__, (void *)cma,
+	pr_debug("%s(cma %pK, count %zu, align %d)\n", __func__, (void *)cma,
 		 count, align);
 
 	if (!count)
+		return 0;
+
+	if (count > cma->count)
 		return 0;
 
 	mask = (1 << align) - 1;

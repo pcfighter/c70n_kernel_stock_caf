@@ -37,9 +37,7 @@
 #include <linux/mmc/host.h>
 #include <linux/mmc/mmc.h>
 #include <linux/mmc/sd.h>
-#if defined(CONFIG_LGE_SDCARD_LDO_GPIO_CONTROL)
-#include <linux/of_gpio.h>
-#endif
+
 #include "core.h"
 #include "bus.h"
 #include "host.h"
@@ -90,24 +88,6 @@ module_param_named(removable, mmc_assume_removable, bool, 0644);
 MODULE_PARM_DESC(
 	removable,
 	"MMC/SD cards are removable and may be removed during suspend");
-
-/*
- * LGE_CHANGE_S
- * Date     : 2014.03.19
- * Author   : bohyun.jung@lge.com
- * Comment  : Dynamic MMC log
- *            set mmc log level by accessing '/sys/module/mmc_core/parameters/debug_level' through adb shell.
- */
-#if defined(CONFIG_LGE_MMC_DYNAMIC_LOG)
-
-uint32_t mmc_debug_level = 6;                   // show pr_info.
-
-module_param_named(debug_level, mmc_debug_level, uint, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(
-    debug_level,
-    "MMC/SD cards debug_level");
-
-#endif  /* end of LGE_CHANGE_E */
 
 #define MMC_UPDATE_BKOPS_STATS_HPI(stats)	\
 	do {					\
@@ -296,22 +276,6 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 				mrq->stop->resp[2], mrq->stop->resp[3]);
 		}
 
-        /* LGE_CHANGE_S
-         * Author : bohyun.jung, D3-5T-FS@lge.com
-         * Change : Log eMMC CMD/ARG/RESP if mmc_blk_reset() fails for eMMC.
-         */
-#if defined(CONFIG_LGE_MMC_DEBUG)
-        /* Only for eMMC (NONREMOVABLE) */
-        if ((host->caps & MMC_CAP_NONREMOVABLE))
-        {
-            if (mrq->sbc)
-                enqueue_mmc_cmd_resp_info(mrq->sbc->opcode, mrq->sbc->arg, mrq->sbc->resp[0]);
-            enqueue_mmc_cmd_resp_info(cmd->opcode, cmd->arg, cmd->resp[0]);
-            if (mrq->stop)
-                enqueue_mmc_cmd_resp_info(mrq->stop->opcode, mrq->stop->arg, mrq->stop->resp[0]);
-        }
-#endif
-
 		if (mrq->done)
 			mrq->done(mrq);
 
@@ -436,7 +400,9 @@ EXPORT_SYMBOL(mmc_blk_init_bkops_statistics);
  */
 void mmc_start_delayed_bkops(struct mmc_card *card)
 {
-	if (!card || !card->ext_csd.bkops_en || mmc_card_doing_bkops(card))
+	if (!card ||
+		!(mmc_card_get_bkops_en_manual(card)) ||
+		mmc_card_doing_bkops(card))
 		return;
 
 	if (card->bkops_info.sectors_changed <
@@ -473,7 +439,7 @@ void mmc_start_bkops(struct mmc_card *card, bool from_exception)
 	int err;
 
 	BUG_ON(!card);
-	if (!card->ext_csd.bkops_en)
+	if (!(mmc_card_get_bkops_en_manual(card)))
 		return;
 
 	if ((card->bkops_info.cancel_delayed_work) && !from_exception) {
@@ -1380,17 +1346,7 @@ void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card)
 			 */
 			limit_us = 3000000;
 		else
-			#ifdef CONFIG_MACH_LGE
-			/* LGE_CHANGE
-			 * Although we already applied enough time,
-			 * timeout-error occurs until now with several-ultimate-crappy-memory.
-			 * So, we give more time than before.
-			 * * 2014-11-17, CY-BSP-FileSys@lge.com
-			 */
-			limit_us = 300000;
-			#else
 			limit_us = 100000;
-			#endif
 
 		/*
 		 * SDHC cards always use these fixed values.
@@ -2128,13 +2084,6 @@ void mmc_power_up(struct mmc_host *host)
 	host->ios.power_mode = MMC_POWER_UP;
 	host->ios.bus_width = MMC_BUS_WIDTH_1;
 	host->ios.timing = MMC_TIMING_LEGACY;
-#if defined(CONFIG_LGE_SDCARD_LDO_GPIO_CONTROL)
-    if(gpio_is_valid(962) && (!strcmp(mmc_hostname(host),"mmc1"))) {
-		mmc_delay(10);
-		gpio_set_value(962, 1);
-		printk(KERN_ERR "[MMC_DEBUG] %s : execute mmc_power_up - gpio high\n", __func__);
-	}
-#endif
 	mmc_set_ios(host);
 
 	/*
@@ -2192,12 +2141,7 @@ void mmc_power_off(struct mmc_host *host)
 	 * can be successfully turned on again.
 	 */
 	mmc_delay(1);
-#if defined(CONFIG_LGE_SDCARD_LDO_GPIO_CONTROL)
-    if(gpio_is_valid(962) && (!strcmp(mmc_hostname(host),"mmc1"))) {
-	    gpio_set_value(962, 0);
-	    printk(KERN_ERR "[MMC_DEBUG] %s : execute mmc_power_off - gpio low\n", __func__);
-	}
-#endif
+
 	mmc_host_clk_release(host);
 }
 

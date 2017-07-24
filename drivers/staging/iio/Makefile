@@ -21,9 +21,3 @@ obj-y += magnetometer/
 obj-y += meter/
 obj-y += resolver/
 obj-y += trigger/
-obj-$(CONFIG_INV_MPU_IIO)       += inv_mpu/
-# LGE_CHANGE_S
-# Comment : Invensense MPU6515 driver
-# 2014-08-05, chaesun.leem@lge.com
-#obj-$(CONFIG_INV_MPU_IIO) += inv_mpu/
-# LGE_CHANGE_E

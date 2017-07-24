@@ -27,9 +27,6 @@
 #include <linux/hrtimer.h>
 #include <linux/power_supply.h>
 #include <linux/cdev.h>
-#ifdef CONFIG_LGE_USB_G_MSM_OTG_ENABLE
-#include <linux/qpnp/qpnp-adc.h>
-#endif
 /*
  * The following are bit fields describing the usb_request.udc_priv word.
  * These bit fields are set by function drivers that wish to queue
@@ -107,7 +104,6 @@ enum msm_usb_phy_type {
 	SNPS_FEMTO_PHY,
 };
 
-#define IDEV_CHG_PROPRIETARY	1000
 #define IDEV_CHG_MAX	1500
 #define IDEV_CHG_MIN	500
 #define IUNIT		100
@@ -196,12 +192,6 @@ enum usb_vdd_value {
 	VDD_VAL_MAX,
 };
 
-#ifdef CONFIG_LGE_USB_G_MSM_OTG_ENABLE
-enum msm_otg_id_state {
-	MSM_OTG_ID_GROUND = 0,
-	MSM_OTG_ID_FLOAT,
-};
-#endif
 /**
  * Maintain state for hvdcp external charger status
  * DEFAULT	This is used when DCP is detected
@@ -284,9 +274,6 @@ enum usb_ctrl {
  */
 struct msm_otg_platform_data {
 	int *phy_init_seq;
-#if defined(CONFIG_LGE_USB_G_MSM_OTG_ENABLE) || defined(CONFIG_LGE_USB_TYPE_A)
-	int *phy_init_host_seq;
-#endif
 	int (*vbus_power)(bool on);
 	unsigned power_budget;
 	enum usb_mode_type mode;
@@ -315,10 +302,6 @@ struct msm_otg_platform_data {
 	bool enable_ahb2ahb_bypass;
 	bool disable_retention_with_vdd_min;
 	int usb_id_gpio;
-#ifdef CONFIG_LGE_USB_TYPE_A
-	int hub_en_gpio;
-	int hub_res_gpio;
-#endif
 	int hub_reset_gpio;
 	int switch_sel_gpio;
 	bool phy_dvdd_always_on;
@@ -487,14 +470,6 @@ struct msm_otg {
 	unsigned cur_power;
 	struct workqueue_struct *otg_wq;
 	struct delayed_work chg_work;
-#if defined(CONFIG_CHG_DETECTOR_MAX14656)
-	struct delayed_work lge_chg_work;
-	int chg_det_cnt;
-#endif
-#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
-	int dcd_timeout_cnt;
-	bool dcd_timeout;
-#endif
 	struct delayed_work id_status_work;
 	struct delayed_work suspend_work;
 	enum usb_chg_state chg_state;
@@ -583,13 +558,6 @@ struct msm_otg {
 	bool pm_done;
 	struct qpnp_vadc_chip	*vadc_dev;
 	int ext_id_irq;
-#ifdef CONFIG_LGE_USB_G_MSM_OTG_ENABLE
-	struct qpnp_adc_tm_btm_param adc_param;
-	struct delayed_work init_adc_work;
-	enum msm_otg_id_state id_state;
-	struct qpnp_adc_tm_chip *adc_tm_dev;
-	bool id_adc_detect;
-#endif
 	bool phy_irq_pending;
 	wait_queue_head_t	host_suspend_wait;
 /* Maximum debug message length */

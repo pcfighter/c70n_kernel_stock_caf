@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -40,12 +40,6 @@
 #include "diag_memorydevice.h"
 #include "diag_mux.h"
 
-#if defined(CONFIG_LGE_USB_DIAG_LOCK)
-#include <soc/qcom/lge/board_lge.h>
-#endif
-#if defined(CONFIG_LGE_USB_DIAG_LOCK_SPR)
-#include <soc/qcom/smem.h>
-#endif
 #include <linux/coresight-stm.h>
 #include <linux/kernel.h>
 #ifdef CONFIG_COMPAT
@@ -712,7 +706,7 @@ static int diag_process_userspace_remote(int proc, void *buf, int len)
 	int bridge_index = proc - 1;
 
 	if (!buf || len < 0) {
-		pr_err("diag: Invalid input in %s, buf: %p, len: %d\n",
+		pr_err("diag: Invalid input in %s, buf: %pK, len: %d\n",
 		       __func__, buf, len);
 		return -EINVAL;
 	}
@@ -1385,7 +1379,9 @@ long diagchar_ioctl(struct file *filp,
 		result = diag_ioctl_dci_log_status(ioarg);
 		break;
 	case DIAG_IOCTL_DCI_EVENT_STATUS:
+		mutex_lock(&driver->dci_mutex);
 		result = diag_ioctl_dci_event_status(ioarg);
+		mutex_unlock(&driver->dci_mutex);
 		break;
 	case DIAG_IOCTL_DCI_CLEAR_LOGS:
 		if (copy_from_user((void *)&client_id, (void __user *)ioarg,
@@ -1626,11 +1622,6 @@ static ssize_t diagchar_write(struct file *file, const char __user *buf,
 #ifdef DIAG_DEBUG
 	int length = 0, i;
 #endif
-
-#ifdef CONFIG_LGE_DM_APP
-    char *buf_cmp;
-#endif
-
 	struct diag_send_desc_type send = { NULL, NULL, DIAG_STATE_START, 0 };
 	struct diag_hdlc_dest_type enc = { NULL, NULL, 0 };
 	void *buf_copy = NULL;
@@ -1666,16 +1657,6 @@ static ssize_t diagchar_write(struct file *file, const char __user *buf,
 		return -EIO;
 	}
 #endif /* DIAG over USB */
-
-#ifdef CONFIG_LGE_DM_APP
-    if (driver->logging_mode == DM_APP_MODE) {
-        /* only diag cmd #250 for supporting testmode tool */
-        buf_cmp = (char *)buf + 4;
-        if (*(buf_cmp) != 0xFA)
-            return 0;
-    }
-#endif
-
 	if (pkt_type == DCI_DATA_TYPE) {
 		user_space_data = diagmem_alloc(driver, payload_size,
 								POOL_TYPE_USER);
@@ -2279,13 +2260,8 @@ static int diagchar_setup_cdev(dev_t devno)
 		return -1;
 	}
 
-#ifndef CONFIG_MACH_LGE
 	driver->diag_dev = device_create(driver->diagchar_class, NULL, devno,
 					 (void *)driver, "diag");
-#else
-	driver->diag_dev = device_create(driver->diagchar_class, NULL, devno,
-					 (void *)driver, "diag_lge");
-#endif
 
 	if (!driver->diag_dev)
 		return -EIO;
@@ -2312,118 +2288,6 @@ static int diagchar_cleanup(void)
 	return 0;
 }
 
-#ifdef CONFIG_LGE_USB_DIAG_LOCK_SPR
-typedef struct {
-	int hw_rev;
-	char model_name[10];
-	// LGE_ONE_BINARY ???
-	char diag_enable;
-} lge_hw_smem_id0_type;
-
-static int lge_diag_get_smem_value(void)
-{
-	int smem_size = 0;
-	lge_hw_smem_id0_type* lge_hw_smem_id0_ptr = (lge_hw_smem_id0_type *)
-			            (smem_get_entry(SMEM_ID_VENDOR0, &smem_size, 0, 0));
-	if (lge_hw_smem_id0_ptr != NULL) {
-		return lge_hw_smem_id0_ptr->diag_enable;
-	} else {
-		return 0;
-	}
-}
-#endif
-
-#ifdef CONFIG_LGE_USB_DIAG_LOCK
-int user_diag_enable = 0;
-
-#define DIAG_ENABLE 1
-int get_diag_enable(void)
-{
-#if !defined(CONFIG_LGE_USB_DIAG_LOCK_SPR)
-	if (lge_get_factory_boot())
-		user_diag_enable = DIAG_ENABLE;
-#endif
-
-#ifdef CONFIG_MACH_MSM8916_PH1_SPR_US
-	user_diag_enable = 1;
-#endif
-	return user_diag_enable;
-}
-EXPORT_SYMBOL(get_diag_enable);
-
-static int __init get_diag_enable_cmdline(char *diag_enable)
-{
-    if(!strcmp(diag_enable,"true")) {
-        user_diag_enable = 1;
-    } else {
-        user_diag_enable = 0;
-    }
-
-    return 1;
-}
-__setup("usb.diag_enable=", get_diag_enable_cmdline);
-
-static ssize_t read_diag_enable(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	int ret;
-#ifdef CONFIG_MACH_MSM8916_PH1_SPR_US
-	user_diag_enable = 1;
-#endif
-	ret = sprintf(buf, "%d", user_diag_enable);
-	pr_debug("%s: diag_enable=%d ret=%d\n", __func__, user_diag_enable,ret);
-	return ret;
-}
-
-static ssize_t write_diag_enable(struct device *dev,
-        struct device_attribute *attr,
-        const char *buf, size_t size)
-{
-    pr_debug("%s: diag_enable=%s size=%d\n", __func__, buf, (int)size);
-    sscanf(buf, "%d", &user_diag_enable);
-
-    return size;
-}
-
-static DEVICE_ATTR(diag_enable, S_IRUGO | S_IWUSR, read_diag_enable, write_diag_enable);
-
-int lge_diag_create_file(struct platform_device *pdev)
-{
-    int ret;
-
-    ret = device_create_file(&pdev->dev, &dev_attr_diag_enable);
-    if (ret) {
-        device_remove_file(&pdev->dev, &dev_attr_diag_enable);
-        return ret;
-    }
-    return ret;
-}
-
-int lge_diag_remove_file(struct platform_device *pdev)
-{
-    device_remove_file(&pdev->dev, &dev_attr_diag_enable);
-    return 0;
-}
-
-static int lge_diag_cmd_probe(struct platform_device *pdev)
-{
-    return lge_diag_create_file(pdev);
-}
-
-static int lge_diag_cmd_remove(struct platform_device *pdev)
-{
-    lge_diag_remove_file(pdev);
-    return 0;
-}
-
-static struct platform_driver lge_diag_cmd_driver = {
-    .probe		= lge_diag_cmd_probe,
-    .remove 	= lge_diag_cmd_remove,
-    .driver 	= {
-        .name = "lg_diag_cmd",
-        .owner	= THIS_MODULE,
-    },
-};
-#endif
 static int __init diagchar_init(void)
 {
 	dev_t dev;
@@ -2527,12 +2391,6 @@ static int __init diagchar_init(void)
 	if (error)
 		goto fail;
 
-#ifdef CONFIG_LGE_USB_DIAG_LOCK
-	platform_driver_register(&lge_diag_cmd_driver);
-#endif
-#ifdef CONFIG_LGE_USB_DIAG_LOCK_SPR
-	user_diag_enable = lge_diag_get_smem_value();
-#endif
 	pr_debug("diagchar initialized now");
 	return 0;
 

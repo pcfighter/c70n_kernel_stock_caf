@@ -640,11 +640,6 @@ static struct clk_freq_tbl ftbl_gcc_blsp1_qup1_6_spi_apps_clk[] = {
 	F(    960000,	      xo,  10,	  1,	2),
 	F(   4800000,	      xo,   4,	  0,	0),
 	F(   9600000,	      xo,   2,	  0,	0),
-/* LGE_CHANGE_S, [TDMB][seongeun.jin@lge.com], TDMB Bring Up */
-#if defined(CONFIG_LGE_BROADCAST_TDMB)
-	F(  10000000,    gpll0,  16,    1,  5),
-#endif
-/* LGE_CHANGE_E, [TDMB][seongeun.jin@lge.com], TDMB Bring Up */
 	F(  16000000,	   gpll0,  10,	  1,	5),
 	F(  19200000,	      xo,   1,	  0,	0),
 	F(  25000000,	   gpll0,  16,	  1,	2),
@@ -931,9 +926,6 @@ static struct rcg_clk jpeg0_clk_src = {
 static struct clk_freq_tbl ftbl_gcc_camss_mclk0_1_clk[] = {
 	F(   9600000,	      xo,   2,	  0,	0),
 	F(  23880000,      gpll0,   1,    2,   67),
-	//LGE_CHANGE_S, mclk clock setting for camera bring-up, jongkwon.chae
-	F(  24000000,      gpll0,   1,    2,   67),
-	//LGE_CHANGE_E, mclk clock setting for camera bring-up, jongkwon.chae
 	F(  66670000,	   gpll0,  12,	  0,	0),
 	F_END
 };
@@ -1082,11 +1074,7 @@ static struct rcg_clk byte0_clk_src = {
 	.c = {
 		.dbg_name = "byte0_clk_src",
 		.ops = &clk_ops_byte,
-#ifdef CONFIG_LGE_PM
-		VDD_DIG_FMAX_MAP2(LOW, 112500000, NOMINAL, 187500000),
-#else
 		VDD_DIG_FMAX_MAP2(LOW, 94400000, NOMINAL, 188500000),
-#endif
 		CLK_INIT(byte0_clk_src.c),
 	},
 };

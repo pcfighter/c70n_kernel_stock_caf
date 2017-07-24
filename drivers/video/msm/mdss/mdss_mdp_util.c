@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -187,24 +187,8 @@ irqreturn_t mdss_mdp_isr(int irq, void *ptr)
 	}
 
 	if (isr & MDSS_MDP_INTR_INTF_1_VSYNC) {
-#ifndef  CONFIG_LGE_VSYNC_SKIP
 		mdss_mdp_intr_done(MDP_INTR_VSYNC_INTF_1);
 		mdss_misr_crc_collect(mdata, DISPLAY_MISR_DSI0);
-#else
-		if (mdata->enable_skip_vsync) {
-			mdata->bucket += mdata->weight;
-			if (mdata->skip_value <= mdata->bucket) {
-				mdss_mdp_intr_done(MDP_INTR_VSYNC_INTF_1);
-				mdss_misr_crc_collect(mdata, DISPLAY_MISR_DSI0);
-				mdata->bucket -= mdata->skip_value;
-			} else {
-				mdata->skip_count++;
-			}
-		} else {
-			mdss_mdp_intr_done(MDP_INTR_VSYNC_INTF_1);
-			mdss_misr_crc_collect(mdata, DISPLAY_MISR_DSI0);
-		}
-#endif
 	}
 
 	if (isr & MDSS_MDP_INTR_INTF_2_VSYNC) {
@@ -523,7 +507,7 @@ static int mdss_mdp_put_img(struct mdss_mdp_img_data *data)
 		pr_debug("pmem buf=0x%pa\n", &data->addr);
 		data->srcp_file = NULL;
 	} else if (!IS_ERR_OR_NULL(data->srcp_ihdl)) {
-		pr_debug("ion hdl=%p buf=0x%pa\n", data->srcp_ihdl,
+		pr_debug("ion hdl=%pK buf=0x%pa\n", data->srcp_ihdl,
 							&data->addr);
 		if (!iclient) {
 			pr_err("invalid ion client\n");
@@ -615,7 +599,7 @@ static int mdss_mdp_get_img(struct msmfb_data *img,
 		data->addr += data->offset;
 		data->len -= data->offset;
 
-		pr_debug("mem=%d ihdl=%p buf=0x%pa len=0x%lu\n", img->memory_id,
+		pr_debug("mem=%d ihdl=%pK buf=0x%pa len=0x%lu\n", img->memory_id,
 			 data->srcp_ihdl, &data->addr, data->len);
 	} else {
 		mdss_mdp_put_img(data);
@@ -669,7 +653,7 @@ static int mdss_mdp_map_buffer(struct mdss_mdp_img_data *data)
 		data->addr += data->offset;
 		data->len -= data->offset;
 
-		pr_debug("ihdl=%p buf=0x%pa len=0x%lu\n",
+		pr_debug("ihdl=%pK buf=0x%pa len=0x%lu\n",
 			 data->srcp_ihdl, &data->addr, data->len);
 	} else {
 		mdss_mdp_put_img(data);

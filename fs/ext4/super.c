@@ -4066,10 +4066,6 @@ no_journal:
 cantfind_ext4:
 	if (!silent)
 		ext4_msg(sb, KERN_ERR, "VFS: Can't find ext4 filesystem");
-		printk(KERN_ERR "EXT4-fs: Can't find ext4 filesystem\n");
-#ifdef CONFIG_MACH_LGE
-	ret = -ESUPER;
-#endif
 	goto failed_mount;
 
 #ifdef CONFIG_QUOTA
@@ -4077,31 +4073,24 @@ failed_mount8:
 	kobject_del(&sbi->s_kobj);
 #endif
 failed_mount7:
-	printk(KERN_ERR "EXT4-fs: failed_mount7\n");
 	ext4_unregister_li_request(sb);
 failed_mount6:
-	printk(KERN_ERR "EXT4-fs: failed_mount6\n");
 	ext4_mb_release(sb);
 failed_mount5:
-	printk(KERN_ERR "EXT4-fs: failed_mount5\n");
 	ext4_ext_release(sb);
 	ext4_release_system_zone(sb);
 failed_mount4a:
-	printk(KERN_ERR "EXT4-fs: failed_mount4a\n");
 	dput(sb->s_root);
 	sb->s_root = NULL;
 failed_mount4:
-	printk(KERN_ERR "EXT4-fs: failed_mount4\n");
 	ext4_msg(sb, KERN_ERR, "mount failed");
 	destroy_workqueue(EXT4_SB(sb)->dio_unwritten_wq);
 failed_mount_wq:
-	printk(KERN_ERR "EXT4-fs: failed_mount_wq\n");
 	if (sbi->s_journal) {
 		jbd2_journal_destroy(sbi->s_journal);
 		sbi->s_journal = NULL;
 	}
 failed_mount3:
-	printk(KERN_ERR "EXT4-fs: failed_mount3\n");
 	ext4_es_unregister_shrinker(sb);
 	del_timer(&sbi->s_err_report);
 	if (sbi->s_flex_groups)
@@ -4114,15 +4103,10 @@ failed_mount3:
 	if (sbi->s_mmp_tsk)
 		kthread_stop(sbi->s_mmp_tsk);
 failed_mount2:
-	printk(KERN_ERR "EXT4-fs: failed_mount2\n");
-#ifdef CONFIG_MACH_LGE
-	ret = -ESUPER;
-#endif
 	for (i = 0; i < db_count; i++)
 		brelse(sbi->s_group_desc[i]);
 	ext4_kvfree(sbi->s_group_desc);
 failed_mount:
-	printk(KERN_ERR "EXT4-fs: failed_mount\n");
 	if (sbi->s_chksum_driver)
 		crypto_free_shash(sbi->s_chksum_driver);
 	if (sbi->s_proc) {

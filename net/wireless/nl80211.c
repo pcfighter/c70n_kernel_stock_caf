@@ -3107,6 +3107,7 @@ static bool nl80211_get_ap_channel(struct cfg80211_registered_device *rdev,
 
 	return ret;
 }
+
 static bool nl80211_valid_auth_type(struct cfg80211_registered_device *rdev,
 				    enum nl80211_auth_type auth_type,
 				    enum nl80211_commands cmd)
@@ -3244,6 +3245,7 @@ static int nl80211_start_ap(struct sk_buff *skb, struct genl_info *info)
 		    !(rdev->wiphy.features & NL80211_FEATURE_P2P_GO_OPPPS))
 			return -EINVAL;
 	}
+
 	if (info->attrs[NL80211_ATTR_WIPHY_FREQ]) {
 		err = nl80211_parse_chandef(rdev, info, &params.chandef);
 		if (err)
@@ -3273,6 +3275,7 @@ static int nl80211_start_ap(struct sk_buff *skb, struct genl_info *info)
 
 	if (err)
 		return err;
+
 	if (info->attrs[NL80211_ATTR_ACL_POLICY]) {
 		params.acl = parse_acl_data(&rdev->wiphy, info);
 		if (IS_ERR(params.acl))

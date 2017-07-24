@@ -69,14 +69,6 @@
 						struct mdp_overlay_list)
 #define MSMFB_LPM_ENABLE	_IOWR(MSMFB_IOCTL_MAGIC, 170, unsigned int)
 
-/* defined for invert color, by LGE */
-#define MSMFB_INVERT_PANEL  _IOW(MSMFB_IOCTL_MAGIC, 171, unsigned int)
-
-#if defined(CONFIG_LGE_BROADCAST_TDMB)
-#define MSMFB_DMB_SET_FLAG        _IOW(MSMFB_IOCTL_MAGIC, 172, int)
-#define MSMFB_DMB_SET_CSC_MATRIX  _IOW(MSMFB_IOCTL_MAGIC, 173, struct mdp_csc_cfg)
-#endif
-
 #define FB_TYPE_3D_PANEL 0x10101010
 #define MDP_IMGTYPE2_START 0x10000
 #define MSMFB_DRIVER_VERSION	0xF9E8D701
@@ -188,6 +180,13 @@ enum {
 	HSIC_INT,
 	HSIC_CON,
 	NUM_HSIC_PARAM,
+};
+
+enum mdss_mdp_max_bw_mode {
+	MDSS_MAX_BW_LIMIT_DEFAULT = 0x1,
+	MDSS_MAX_BW_LIMIT_CAMERA = 0x2,
+	MDSS_MAX_BW_LIMIT_HFLIP = 0x4,
+	MDSS_MAX_BW_LIMIT_VFLIP = 0x8,
 };
 
 #define MDSS_MDP_ROT_ONLY		0x80

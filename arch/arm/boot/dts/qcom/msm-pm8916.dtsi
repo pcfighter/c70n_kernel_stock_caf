@@ -218,12 +218,8 @@
 			qcom,warm-bat-mv = <4100>;
 			qcom,ibatmax-warm-ma = <360>;
 			qcom,ibatmax-cool-ma = <360>;
-/* [LGE_UPDATE_S] */
-/*
 			qcom,batt-hot-percentage = <25>;
 			qcom,batt-cold-percentage = <80>;
-*/
-/* [LGE_UPDATE_E] */
 			qcom,tchg-mins = <232>;
 			qcom,chg-vadc = <&pm8916_vadc>;
 			qcom,chg-adc_tm = <&pm8916_adc_tm>;
@@ -539,7 +535,7 @@
 			status = "disabled";
 		};
 
-		pm8916_pwm_1: pwm@bc00 {
+		pm8916_pwm: pwm@bc00 {
 			compatible = "qcom,qpnp-pwm";
 			reg = <0xbc00 0x100>;
 			reg-names = "qpnp-lpg-channel-base";

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,18 +23,13 @@ DEFINE_MSM_MUTEX(msm_actuator_mutex);
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 #define MAX_QVALUE  4096
 static struct v4l2_file_operations msm_actuator_v4l2_subdev_fops;
+
+#define PARK_LENS_LONG_STEP 7
+#define PARK_LENS_MID_STEP 5
+#define PARK_LENS_SMALL_STEP 3
+
 static int32_t msm_actuator_power_up(struct msm_actuator_ctrl_t *a_ctrl);
 static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl);
-
-#if !defined(CONFIG_LGE_DISABLE_VCM_POWER_DOWN_MODE)
-/*LGE_CHANGE S, actuator power down mode , 2014-11-13, Camera-Driver@lge.com */
-static int32_t power_down_mode = 0;
-static int32_t actuator_num = 0;
-static int32_t actuator_state = 0;
-/*LGE_CHANGE E, actuator power down mode , 2014-11-13, Camera-Driver@lge.com */
-#else
-static int32_t actuator_num = 0;
-#endif
 
 static struct msm_actuator msm_vcm_actuator_table;
 static struct msm_actuator msm_piezo_actuator_table;
@@ -90,11 +85,6 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 	struct msm_camera_i2c_reg_array *i2c_tbl = a_ctrl->i2c_reg_tbl;
 	CDBG("Enter\n");
 	for (i = 0; i < size; i++) {
-		/* check that the index into i2c_tbl cannot grow larger that
-		the allocated size of i2c_tbl */
-		if ((a_ctrl->total_steps + 1) < (a_ctrl->i2c_tbl_index)) {
-			break;
-		}
 		if (write_arr[i].reg_write_type == MSM_ACTUATOR_WRITE_DAC) {
 			value = (next_lens_position <<
 				write_arr[i].data_shift) |
@@ -104,44 +94,26 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 			if (write_arr[i].reg_addr != 0xFFFF) {
 				i2c_byte1 = write_arr[i].reg_addr;
 				i2c_byte2 = value;
-/* LGE_CHANGE_S, jaehan.jeong, 2014.2.13, To apply  the change I2C order for DW9718, [STARTS HERE] */
-				switch(actuator_num){
-					case 9714: //dw9714, QCT original
-						if (size != (i+1)) {
-							i2c_byte2 = value & 0xFF;
-							CDBG("byte1:0x%x, byte2:0x%x\n",
-								i2c_byte1, i2c_byte2);
-							i2c_tbl[a_ctrl->i2c_tbl_index].
-								reg_addr = i2c_byte1;
-							i2c_tbl[a_ctrl->i2c_tbl_index].
-								reg_data = i2c_byte2;
-							i2c_tbl[a_ctrl->i2c_tbl_index].
-								delay = 0;
-							a_ctrl->i2c_tbl_index++;
-							i++;
-							i2c_byte1 = write_arr[i].reg_addr;
-							i2c_byte2 = (value & 0xFF00) >> 8;
-						}
+				if (size != (i+1)) {
+					i2c_byte2 = value & 0xFF;
+					CDBG("byte1:0x%x, byte2:0x%x\n",
+						i2c_byte1, i2c_byte2);
+					if (a_ctrl->i2c_tbl_index >
+						a_ctrl->total_steps) {
+						pr_err("failed:i2c table index out of bound\n");
 						break;
-					case 9716: //dw9716
-					case 9718: //dw9718
-					case 9719: //dw9719
-					case 517: //wv517
-					default:
-						if (size != (i+1)) {
-							i2c_byte2 = (value & 0xFF00) >> 8;
-							CDBG("byte1:0x%x, byte2:0x%x\n", i2c_byte1, i2c_byte2);
-							i2c_tbl[a_ctrl->i2c_tbl_index].reg_addr = i2c_byte1;
-							i2c_tbl[a_ctrl->i2c_tbl_index].reg_data = i2c_byte2;
-							i2c_tbl[a_ctrl->i2c_tbl_index].delay = 0;
-							a_ctrl->i2c_tbl_index++;
-							i++;
-							i2c_byte1 = write_arr[i].reg_addr;
-							i2c_byte2 = (value & 0x00FF);
-						}
-						break;
+					}
+					i2c_tbl[a_ctrl->i2c_tbl_index].
+						reg_addr = i2c_byte1;
+					i2c_tbl[a_ctrl->i2c_tbl_index].
+						reg_data = i2c_byte2;
+					i2c_tbl[a_ctrl->i2c_tbl_index].
+						delay = 0;
+					a_ctrl->i2c_tbl_index++;
+					i++;
+					i2c_byte1 = write_arr[i].reg_addr;
+					i2c_byte2 = (value & 0xFF00) >> 8;
 				}
-/* LGE_CHANGE_E, jaehan.jeong, 2014.2.13, To apply  the change I2C order for DW9718, [STARTS HERE] */
 			} else {
 				i2c_byte1 = (value & 0xFF00) >> 8;
 				i2c_byte2 = value & 0xFF;
@@ -150,6 +122,10 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 			i2c_byte1 = write_arr[i].reg_addr;
 			i2c_byte2 = (hw_dword & write_arr[i].hw_mask) >>
 				write_arr[i].hw_shift;
+		}
+		if (a_ctrl->i2c_tbl_index > a_ctrl->total_steps) {
+			pr_err("failed: i2c table index out of bound\n");
+			break;
 		}
 		CDBG("i2c_byte1:0x%x, i2c_byte2:0x%x\n", i2c_byte1, i2c_byte2);
 		i2c_tbl[a_ctrl->i2c_tbl_index].reg_addr = i2c_byte1;
@@ -281,6 +257,12 @@ static int32_t msm_actuator_piezo_move_focus(
 		return -EFAULT;
 	}
 
+	if (dest_step_position > a_ctrl->total_steps) {
+		pr_err("Step pos greater than total steps = %d\n",
+			dest_step_position);
+		return -EFAULT;
+	}
+
 	a_ctrl->i2c_tbl_index = 0;
 	a_ctrl->func_tbl->actuator_parse_i2c_params(a_ctrl,
 		(num_steps *
@@ -314,10 +296,6 @@ static int32_t msm_actuator_move_focus(
 	uint16_t target_lens_pos = 0;
 	int16_t dest_step_pos = move_params->dest_step_pos;
 	uint16_t curr_lens_pos = 0;
-	/*LGE_CHANGE_S, LG_AF, 2014, By AF Member*/
-	//Add log for debug
-	uint16_t dest_lens_pos = 0;
-	/*LGE_CHANGE_E, LG_AF, 2014, By AF Member*/
 	int dir = move_params->dir;
 	int32_t num_steps = move_params->num_steps;
 	struct msm_camera_i2c_reg_setting reg_setting;
@@ -356,17 +334,8 @@ static int32_t msm_actuator_move_focus(
 	}
 	curr_lens_pos = a_ctrl->step_position_table[a_ctrl->curr_step_pos];
 	a_ctrl->i2c_tbl_index = 0;
-	#if 0 //QMC Original
 	CDBG("curr_step_pos =%d dest_step_pos =%d curr_lens_pos=%d\n",
 		a_ctrl->curr_step_pos, dest_step_pos, curr_lens_pos);
-	#else
-	/*LGE_CHANGE_S, LG_AF, 2014, By AF Member*/
-	//Add log for debug
-	dest_lens_pos = a_ctrl->step_position_table[dest_step_pos]; /* LGE_CHANGE, Add log for debug, 2014.11.03, seongjo.kim@lge.com */
-	CDBG("curr_step_pos =%d dest_step_pos =%d curr_lens_pos=%d dest_lens_pos=%d\n",
-		a_ctrl->curr_step_pos, dest_step_pos, curr_lens_pos, dest_lens_pos); /* LGE_CHANGE, Add log for debug, 2014.11.03, seongjo.kim@lge.com */
-	#endif
-	/*LGE_CHANGE_S, LG_AF, 2014, By AF Member*/
 
 	while (a_ctrl->curr_step_pos != dest_step_pos) {
 		step_boundary =
@@ -433,7 +402,7 @@ static int32_t msm_actuator_park_lens(struct msm_actuator_ctrl_t *a_ctrl)
 		(!a_ctrl->func_tbl->actuator_parse_i2c_params)) {
 		pr_err("%s:%d Failed to park lens.\n",
 			__func__, __LINE__);
-		return 0;
+		return -EFAULT;
 	}
 
 	if (a_ctrl->park_lens.max_step > a_ctrl->max_code_size)
@@ -441,8 +410,28 @@ static int32_t msm_actuator_park_lens(struct msm_actuator_ctrl_t *a_ctrl)
 
 	next_lens_pos = a_ctrl->step_position_table[a_ctrl->curr_step_pos];
 	while (next_lens_pos) {
-		next_lens_pos = (next_lens_pos > a_ctrl->park_lens.max_step) ?
-			(next_lens_pos - a_ctrl->park_lens.max_step) : 0;
+		/* conditions which help to reduce park lens time */
+		if (next_lens_pos > (a_ctrl->park_lens.max_step *
+			PARK_LENS_LONG_STEP)) {
+			next_lens_pos = next_lens_pos -
+				(a_ctrl->park_lens.max_step *
+				PARK_LENS_LONG_STEP);
+		} else if (next_lens_pos > (a_ctrl->park_lens.max_step *
+			PARK_LENS_MID_STEP)) {
+			next_lens_pos = next_lens_pos -
+				(a_ctrl->park_lens.max_step *
+				PARK_LENS_MID_STEP);
+		} else if (next_lens_pos > (a_ctrl->park_lens.max_step *
+			PARK_LENS_SMALL_STEP)) {
+			next_lens_pos = next_lens_pos -
+				(a_ctrl->park_lens.max_step *
+				PARK_LENS_SMALL_STEP);
+		} else {
+			next_lens_pos = (next_lens_pos >
+				a_ctrl->park_lens.max_step) ?
+				(next_lens_pos - a_ctrl->park_lens.
+				max_step) : 0;
+		}
 		a_ctrl->func_tbl->actuator_parse_i2c_params(a_ctrl,
 			next_lens_pos, a_ctrl->park_lens.hw_params,
 			a_ctrl->park_lens.damping_delay);
@@ -467,90 +456,32 @@ static int32_t msm_actuator_park_lens(struct msm_actuator_ctrl_t *a_ctrl)
 	return 0;
 }
 
-/*LGE_CHANGE_S, LG_AF, 2014, By AF Member*/
-//Define the function to avoid tick sound before actuator close
-static int32_t msm_actuator_stable_lens(struct msm_actuator_ctrl_t *a_ctrl)
-{
-	int32_t rc = 0;
-	uint16_t next_lens_pos = 0;
-	uint16_t min_code_per_step = 20;
-	struct msm_camera_i2c_reg_setting reg_setting;
-
-	a_ctrl->i2c_tbl_index = 0;
-	if ((a_ctrl->curr_step_pos > a_ctrl->total_steps) ||
-		(!a_ctrl->step_position_table) ||
-		(!a_ctrl->i2c_reg_tbl) ||
-		(!a_ctrl->func_tbl) ||
-		(!a_ctrl->func_tbl->actuator_parse_i2c_params)) {
-		pr_err("%s:%d Unable to stable lens 1.\n",
-			__func__, __LINE__);
-		return 0;
-	}
-
-	next_lens_pos = a_ctrl->step_position_table[a_ctrl->curr_step_pos];
-	while (next_lens_pos) {
-		if ((!a_ctrl->step_position_table) ||
-			(!a_ctrl->i2c_reg_tbl) ||
-			(!a_ctrl->func_tbl) ||
-			(!a_ctrl->func_tbl->actuator_parse_i2c_params)) {
-			pr_err("%s:%d Unable to stable lens 2.\n", __func__, __LINE__);
-			return 0;
-		}
-
-		if (next_lens_pos > (a_ctrl->step_position_table[a_ctrl->total_steps] / 2))
-		{
-			next_lens_pos = (uint16_t)(a_ctrl->step_position_table[a_ctrl->total_steps] * 1 / 2);
-		}
-		else
-		{
-			next_lens_pos = (next_lens_pos > min_code_per_step) ?
-				(next_lens_pos - min_code_per_step) : 0;
-		}
-
-		a_ctrl->func_tbl->actuator_parse_i2c_params(a_ctrl,
-			next_lens_pos, 0x0F, 100);
-
-		reg_setting.reg_setting = a_ctrl->i2c_reg_tbl;
-		reg_setting.size = a_ctrl->i2c_tbl_index;
-		reg_setting.data_type = a_ctrl->i2c_data_type;
-
-		rc = a_ctrl->i2c_client.i2c_func_tbl->
-			i2c_write_table_w_microdelay(
-			&a_ctrl->i2c_client, &reg_setting);
-		if (rc < 0) {
-			pr_err("%s Failed I2C write Line %d\n",
-				__func__, __LINE__);
-			return rc;
-		}
-		a_ctrl->i2c_tbl_index = 0;
-		/* Use typical damping time delay to avoid tick sound */
-		usleep_range(10000, 12000);
-	}
-
-	return 0;
-}
-/*LGE_CHANGE_E, LG_AF, 2014, By AF Member*/
-
 static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 	struct msm_actuator_set_info_t *set_info)
 {
 	int16_t code_per_step = 0;
 	uint32_t qvalue = 0;
 	int16_t cur_code = 0;
-	int16_t step_index = 0, region_index = 0;
+	uint16_t step_index = 0, region_index = 0;
 	uint16_t step_boundary = 0;
 	uint32_t max_code_size = 1;
 	uint16_t data_size = set_info->actuator_params.data_size;
 	CDBG("Enter\n");
 
+	/* validate the actuator state */
+	if (a_ctrl->actuator_state != ACTUATOR_POWER_UP) {
+		pr_err("%s:%d invalid actuator_state %d\n"
+			, __func__, __LINE__, a_ctrl->actuator_state);
+		return -EINVAL;
+	}
+
 	for (; data_size > 0; data_size--)
 		max_code_size *= 2;
 
 	a_ctrl->max_code_size = max_code_size;
-	if ((a_ctrl->actuator_state == ACTUATOR_POWER_UP) &&
-		(a_ctrl->step_position_table != NULL)) {
-		kfree(a_ctrl->step_position_table);
-	}
+	/* free the step_position_table to allocate a new one */
+	kfree(a_ctrl->step_position_table);
+
 	a_ctrl->step_position_table = NULL;
 
 	if (set_info->af_tuning_params.total_steps
@@ -579,13 +510,22 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 		step_boundary =
 			a_ctrl->region_params[region_index].
 			step_bound[MOVE_NEAR];
+		if (step_boundary >
+			set_info->af_tuning_params.total_steps) {
+			pr_err("invalid step_boundary = %d, max_val = %d",
+				step_boundary,
+				set_info->af_tuning_params.total_steps);
+			kfree(a_ctrl->step_position_table);
+			a_ctrl->step_position_table = NULL;
+			return -EINVAL;
+		}
 		for (; step_index <= step_boundary; step_index++) {
-			if ( qvalue > 1 && qvalue <= MAX_QVALUE)
+			if (qvalue > 1 && qvalue <= MAX_QVALUE)
 				cur_code = step_index * code_per_step / qvalue;
 			else
 				cur_code = step_index * code_per_step;
 			cur_code += set_info->af_tuning_params.initial_code;
-			if (cur_code < max_code_size){
+			if (cur_code < max_code_size) {
 				a_ctrl->step_position_table[step_index] =
 					cur_code;
 			} else {
@@ -866,135 +806,6 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 	return rc;
 }
 
-#if defined(CONFIG_LGE_DISABLE_VCM_POWER_DOWN_MODE)
-static int msm_actuator_set_num(enum af_camera_name actuator_name)
-{
-	int rc = 0;
-	switch(actuator_name){
-		case ACTUATOR_MAIN_CAM_0: //dw9716
-			pr_err("[CHECK] this is dw9716!! just set the actuator_num!!");
-			actuator_num = 9716;
-			break;
-		case ACTUATOR_MAIN_CAM_1: //dw9718
-			pr_err("[CHECK] this is 9718!! just set the actuator_num");
-			actuator_num = 9718;
-			break;
-		case ACTUATOR_MAIN_CAM_2: //wv517
-			pr_err("[CHECK] this is wv517!! just set the actuator_num");
-			actuator_num = 517;
-			break;
-		case ACTUATOR_MAIN_CAM_3: //dw9714
-			pr_err("[CHECK] this is dw9714!! just set the actuator_num");
-			actuator_num = 9714;
-			break;
-		case ACTUATOR_MAIN_CAM_4: //dw9719
-			pr_err("[CHECK] this is dw9719!! just set the actuator_num");
-			actuator_num = 9719;
-			break;
-		default:
-			pr_err("[CHECK] check the actuator name in af_actuator_init() ");
-			break;
-	}
-	return rc;
-}
-#endif
-
-
-/*LGE_CHANGE S, actuator power down mode , 2014-11-13, Camera-Driver@lge.com */
-#if !defined(CONFIG_LGE_DISABLE_VCM_POWER_DOWN_MODE)
-static int msm_actuator_init(struct msm_actuator_ctrl_t *a_ctrl,
-						enum af_camera_name actuator_name)
-{
-	int rc = 0;
-
-	struct msm_camera_cci_client *cci_client = NULL;
-
-	CDBG("Enter\n");
-	if (!a_ctrl) {
-		pr_err("failed\n");
-		return -EINVAL;
-	}
-	if (a_ctrl->act_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
-		rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_util(
-			&a_ctrl->i2c_client, MSM_CCI_INIT);
-		if (rc < 0)
-			pr_err("cci_init failed\n");
-	}
-
-	CDBG("[CHECK] Actuator Power Down = 0 Mode! actuator_name: %d\n", actuator_name);
-
-	if (a_ctrl->act_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
-		cci_client = a_ctrl->i2c_client.cci_client;
-		cci_client->sid = (0x18 >> 1) ;
-		cci_client->retries = 3;
-		cci_client->id_map = 0;
-		cci_client->cci_i2c_master = a_ctrl->cci_master;
-
-		a_ctrl->i2c_client.addr_type = MSM_CAMERA_I2C_BYTE_ADDR;
-
-
-		switch(actuator_name){
-			case ACTUATOR_MAIN_CAM_0: //dw9716
-				pr_err("[CHECK] this is dw9716!! make active mode!!");
-				rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
-					&a_ctrl->i2c_client,
-					0x00,
-					0x00, //PWDN MODE = LOW
-					MSM_ACTUATOR_BYTE_DATA);
-				actuator_num = 9716;
-				break;
-			case ACTUATOR_MAIN_CAM_1: //dw9718
-				pr_err("[CHECK] this is 9718!! make active mode!!");
-				rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
-					&a_ctrl->i2c_client,
-					0x00,
-					0x00, //PWDN MODE = LOW
-					MSM_ACTUATOR_BYTE_DATA);
-				actuator_num = 9718;
-				break;
-			case ACTUATOR_MAIN_CAM_2: //wv517
-				pr_err("[CHECK] this is wv517!! make active mode");
-				rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
-					&a_ctrl->i2c_client,
-					0x40,
-					0x01, //PWDN MODE = LOW
-					MSM_ACTUATOR_BYTE_DATA);
-				actuator_num = 517;
-				break;
-			case ACTUATOR_MAIN_CAM_3: //dw9714
-				pr_err("[CHECK] this is dw9714!! just set the actuator_num");
-				actuator_num = 9714;
-				break;
-			case ACTUATOR_MAIN_CAM_4: //dw9719
-				pr_err("[CHECK] this is dw9719!! just set the actuator_num");
-				actuator_num = 9719;
-				break;
-			case ACTUATOR_MAIN_CAM_5:
-				pr_info("[CHECK] this is zc533!! just set the actuator_num\n");
-				actuator_num = 533;
-				break;
-			default:
-				pr_err("[CHECK] check the actuator name in af_actuator_init() ");
-				break;
-		}
-
-		if (rc < 0) {
-			pr_err("%s:%d Actuator Power Down = 0 Mode! failed (rc: %d).\n",
-				__func__, __LINE__, rc);
-		}
-		else {
-			pr_err("%s:%d Actuator Power Down = 0 Mode! Succeed.\n",
-						__func__, __LINE__);
-			power_down_mode = 0;
-			CDBG("%s:%d SET power_down_mode = 0\n",
-						__func__, __LINE__);
-		}
-	}
-	actuator_state = ACTUATOR_POWER_UP;
-	CDBG("Exit\n");
-	return rc;
-}
-#else //QCT
 static int msm_actuator_init(struct msm_actuator_ctrl_t *a_ctrl)
 {
 	int rc = 0;
@@ -1012,34 +823,26 @@ static int msm_actuator_init(struct msm_actuator_ctrl_t *a_ctrl)
 	CDBG("Exit\n");
 	return rc;
 }
-#endif
-/*LGE_CHANGE E, actuator power down mode , 2014-11-13, Camera-Driver@lge.com */
 
 static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 	void __user *argp)
 {
 	struct msm_actuator_cfg_data *cdata =
 		(struct msm_actuator_cfg_data *)argp;
-	int32_t rc = 0;
+	int32_t rc = -EINVAL;
 	mutex_lock(a_ctrl->actuator_mutex);
 	CDBG("Enter\n");
 	CDBG("%s type %d\n", __func__, cdata->cfgtype);
 	switch (cdata->cfgtype) {
 	case CFG_ACTUATOR_INIT:
-#if !defined(CONFIG_LGE_DISABLE_VCM_POWER_DOWN_MODE)
-/*LGE_CHANGE S, actuator power down mode , 2014-11-13, Camera-Driver@lge.com */
-		rc = msm_actuator_init(a_ctrl, cdata->cfg.cam_name);
-/*LGE_CHANGE E, actuator power down mode , 2014-11-13, Camera-Driver@lge.com */
-#else
-	rc = msm_actuator_set_num(cdata->cfg.cam_name);
-	rc = msm_actuator_init(a_ctrl);
-#endif
+		rc = msm_actuator_init(a_ctrl);
 		if (rc < 0)
 			pr_err("msm_actuator_init failed %d\n", rc);
 		break;
 	case CFG_GET_ACTUATOR_INFO:
 		cdata->is_af_supported = 1;
 		cdata->cfg.cam_name = a_ctrl->cam_name;
+		rc = 0;
 		break;
 
 	case CFG_SET_ACTUATOR_INFO:
@@ -1049,15 +852,19 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 		break;
 
 	case CFG_SET_DEFAULT_FOCUS:
-		rc = a_ctrl->func_tbl->actuator_set_default_focus(a_ctrl,
-			&cdata->cfg.move);
+		if (a_ctrl->func_tbl &&
+			a_ctrl->func_tbl->actuator_set_default_focus)
+			rc = a_ctrl->func_tbl->actuator_set_default_focus(
+				a_ctrl,	&cdata->cfg.move);
 		if (rc < 0)
 			pr_err("move focus failed %d\n", rc);
 		break;
 
 	case CFG_MOVE_FOCUS:
-		rc = a_ctrl->func_tbl->actuator_move_focus(a_ctrl,
-			&cdata->cfg.move);
+		if (a_ctrl->func_tbl &&
+			a_ctrl->func_tbl->actuator_move_focus)
+			rc = a_ctrl->func_tbl->actuator_move_focus(a_ctrl,
+				&cdata->cfg.move);
 		if (rc < 0)
 			pr_err("move focus failed %d\n", rc);
 		break;
@@ -1068,8 +875,10 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 		break;
 
 	case CFG_SET_POSITION:
-		rc = a_ctrl->func_tbl->actuator_set_position(a_ctrl,
-			&cdata->cfg.setpos);
+		if (a_ctrl->func_tbl &&
+			a_ctrl->func_tbl->actuator_set_position)
+			rc = a_ctrl->func_tbl->actuator_set_position(a_ctrl,
+				&cdata->cfg.setpos);
 		if (rc < 0)
 			pr_err("actuator_set_position failed %d\n", rc);
 		break;
@@ -1132,117 +941,17 @@ static struct msm_camera_i2c_fn_t msm_sensor_qup_func_tbl = {
 
 static int msm_actuator_close(struct v4l2_subdev *sd,
 	struct v4l2_subdev_fh *fh) {
-
-#if !defined(CONFIG_LGE_DISABLE_VCM_POWER_DOWN_MODE)
-/*LGE_CHANGE S, actuator power down mode , 2014-11-13, Camera-Driver@lge.com */
-	struct msm_camera_cci_client *cci_client = NULL;
-/*LGE_CHANGE E, actuator power down mode , 2014-11-13, Camera-Driver@lge.com */
-#endif
-
 	int rc = 0;
 	struct msm_actuator_ctrl_t *a_ctrl =  v4l2_get_subdevdata(sd);
 	CDBG("Enter\n");
-	if (!a_ctrl) {
+	if (!a_ctrl || !a_ctrl->i2c_client.i2c_func_tbl) {
+		/* check to make sure that init happens before release */
 		pr_err("failed\n");
 		return -EINVAL;
 	}
-
-	/*LGE_CHANGE_S, LG_AF, 2014, By AF Member*/
-	//Add the function to avoid tick sound before actuator close
-	msm_actuator_stable_lens(a_ctrl);
-	/*LGE_CHANGE_E, LG_AF, 2014, By AF Member*/
-
-#if !defined(CONFIG_LGE_DISABLE_VCM_POWER_DOWN_MODE)
-/*LGE_CHANGE S, actuator power down mode , 2014-11-13, Camera-Driver@lge.com */
-	CDBG("[CHECK] Actuator Power Down = 1 Mode!\n");
-
 	if (a_ctrl->act_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
-		if (!a_ctrl->i2c_client.cci_client) {
-			pr_err("[CHECK] cci_client is not yet initialized (Line: %d)\n", __LINE__);
-		}
-		else if (!a_ctrl->i2c_client.i2c_func_tbl) {
-			pr_err("[CHECK] i2c_func_tbl is not yet initialized (Line: %d)\n", __LINE__);
-		}
-		else if (power_down_mode == 1) {
-			pr_err("[CHECK] current mode is power_down_mode = 1 : no need to set\n");
-		}
-		else if (actuator_state == ACTUATOR_POWER_DOWN) {	//TD2486034816, NOC error during camera recovery, jinw.kim
-			pr_err("[CHECK] Actuator is already closed.\n");
-		}
-		else {
-			CDBG("[CHECK] I2C Write for Actuator Power Down!!\n");
-
-			cci_client = a_ctrl->i2c_client.cci_client;
-			cci_client->sid = (0x18 >> 1) ;
-			cci_client->retries = 3;
-			cci_client->id_map = 0;
-			cci_client->cci_i2c_master = a_ctrl->cci_master;
-
-			a_ctrl->i2c_client.addr_type = MSM_CAMERA_I2C_BYTE_ADDR;
-
-			switch(actuator_num){
-				case 9716: //dw9716
-					pr_info("[CHECK] this is dw9716!! make power down mode\n");
-					rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
-						&a_ctrl->i2c_client,
-						0x80, //PWDN MODE = HIGH
-						0x00,
-						MSM_ACTUATOR_BYTE_DATA);
-					break;
-				case 9718: //dw9718
-					pr_info("[CHECK] this is dw9718!! make power down mode\n");
-					rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
-						&a_ctrl->i2c_client,
-						0x00,
-						0x01, //PWDN MODE = HIGH
-						MSM_ACTUATOR_BYTE_DATA);
-					break;
-				case 517: //wv517
-					pr_info("[CHECK] this is wv517!! make power down mode\n");
-					rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
-						&a_ctrl->i2c_client,
-						0x40,
-						0x81, //PWDN MODE = HIGH
-						MSM_ACTUATOR_BYTE_DATA);
-					break;
-				case 533:
-					pr_info("[CHECK] this is zc533!! make power down mode\n");
-					rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
-						&a_ctrl->i2c_client,
-						0x02,
-						0x01,
-						MSM_ACTUATOR_BYTE_DATA);
-					break;
-				default:
-					pr_err("%s: don't need to set power down mode", __func__);
-					break;
-			}
-
-			if (rc < 0) {
-				pr_err("%s:%d Actuator Power Down = 1 Mode! failed (rc: %d).\n",
-					__func__, __LINE__, rc);
-			}
-			else {
-				pr_err("%s:%d Actuator Power Down = 1 Mode! Succeed.\n",
-							__func__, __LINE__);
-				power_down_mode = 1;
-				CDBG("%s:%d SET power_down_mode = 1\n",
-							__func__, __LINE__);
-			}
-		}
-	}
-	actuator_state = ACTUATOR_POWER_DOWN;
-/*LGE_CHANGE E, actuator power down mode , 2014-11-13, Camera-Driver@lge.com */
-#endif
-
-	if (a_ctrl->act_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
-	    if (!a_ctrl->i2c_client.i2c_func_tbl) {
-			rc = -1;
-			pr_err("i2c_func_tbl is NULL, CCI release failed (Line: %d)\n", __LINE__);
-		}else{
-			rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_util(
+		rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_util(
 			&a_ctrl->i2c_client, MSM_CCI_RELEASE);
-		}
 		if (rc < 0)
 			pr_err("cci_init failed\n");
 	}
@@ -1272,8 +981,12 @@ static long msm_actuator_subdev_ioctl(struct v4l2_subdev *sd,
 	case MSM_SD_NOTIFY_FREEZE:
 		return 0;
 	case MSM_SD_SHUTDOWN:
-		msm_actuator_close(sd, NULL);
-		return 0;
+		if (!a_ctrl->i2c_client.i2c_func_tbl) {
+			pr_err("a_ctrl->i2c_client.i2c_func_tbl NULL\n");
+			return -EINVAL;
+		} else {
+			return msm_actuator_close(sd, NULL);
+		}
 	default:
 		return -ENOIOCTLCMD;
 	}
@@ -1361,16 +1074,6 @@ static long msm_actuator_subdev_do_ioctl(
 
 			parg = &actuator_data;
 			break;
-
-#if !defined(CONFIG_LGE_DISABLE_VCM_POWER_DOWN_MODE)
-/*LGE_CHANGE S, actuator power down mode , 2015-02-13, Camera-Driver@lge.com */
-		case CFG_ACTUATOR_INIT:
-			actuator_data.cfg.cam_name = u32->cfg.cam_name;
-			CDBG("%s:%d u32->cfg.cam_name %d\n", __func__, __LINE__, u32->cfg.cam_name);
-			break;
-/*LGE_CHANGE E, actuator power down mode , 2015-02-13, Camera-Driver@lge.com */
-#endif
-
 		case CFG_SET_DEFAULT_FOCUS:
 		case CFG_MOVE_FOCUS:
 			actuator_data.cfgtype = u32->cfgtype;
@@ -1706,15 +1409,6 @@ static int __init msm_actuator_init_module(void)
 {
 	int32_t rc = 0;
 	CDBG("Enter\n");
-
-#if !defined(CONFIG_LGE_DISABLE_VCM_POWER_DOWN_MODE)
-/*LGE_CHANGE S, actuator power down mode , 2014-11-13, Camera-Driver@lge.com */
-	power_down_mode = 1;
-	CDBG("%s:%d SET power_down_mode = 1\n",
-				__func__, __LINE__);
-/*LGE_CHANGE E, actuator power down mode , 2014-11-13, Camera-Driver@lge.com */
-#endif
-
 	rc = platform_driver_probe(&msm_actuator_platform_driver,
 		msm_actuator_platform_probe);
 	if (!rc)

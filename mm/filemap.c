@@ -34,15 +34,6 @@
 #include <linux/memcontrol.h>
 #include <linux/cleancache.h>
 #include "internal.h"
-/* LGE_CHANGE_S
- *
- * do read/mmap profiling during booting
- * in order to use the data as readahead args
- *
- * byungchul.park@lge.com 20120503
- */
-#include "../fs/sreadahead_prof.h"
-/* LGE_CHAGE_E */
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/filemap.h>
@@ -637,31 +628,6 @@ void end_page_writeback(struct page *page)
 	wake_up_page(page, PG_writeback);
 }
 EXPORT_SYMBOL(end_page_writeback);
-
-/*
- * After completing I/O on a page, call this routine to update the page
- * flags appropriately
- */
-void page_endio(struct page *page, int rw, int err)
-{
-	if (rw == READ) {
-		if (!err) {
-			SetPageUptodate(page);
-		} else {
-			ClearPageUptodate(page);
-			SetPageError(page);
-		}
-		unlock_page(page);
-	} else { /* rw == WRITE */
-		if (err) {
-			SetPageError(page);
-			if (page->mapping)
-				mapping_set_error(page->mapping, err);
-		}
-		end_page_writeback(page);
-	}
-}
-EXPORT_SYMBOL_GPL(page_endio);
 
 /**
  * __lock_page - get a lock on the page, assuming we need to sleep to get it
@@ -1598,11 +1564,7 @@ static void do_sync_mmap_readahead(struct vm_area_struct *vma,
 	/*
 	 * mmap read-around
 	 */
-#if defined(CONFIG_READAHEAD_MMAP_SIZE_ENABLE)
-    ra_pages = CONFIG_READAHEAD_MMAP_PAGE_CNT;
-#else
-    ra_pages = max_sane_readahead(ra->ra_pages);
-#endif
+	ra_pages = max_sane_readahead(ra->ra_pages);
 	ra->start = max_t(long, 0, offset - ra_pages / 2);
 	ra->size = ra_pages;
 	ra->async_size = ra_pages / 4;
@@ -1673,15 +1635,6 @@ int filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 		/* No page in the page cache at all */
 		do_sync_mmap_readahead(vma, ra, file, offset);
 		count_vm_event(PGMAJFAULT);
-/* LGE_CHANGE_S
- *
- * Profile files related to pgmajfault during 1st booting
- * in order to use the data as readahead args
- *
- * matia.kim@lge.com 20130612
- */
-		sreadahead_prof(file, 0, 0);
- /* LGE_CHANGE_E */
 		mem_cgroup_count_vm_event(vma->vm_mm, PGMAJFAULT);
 		ret = VM_FAULT_MAJOR;
 retry_find:

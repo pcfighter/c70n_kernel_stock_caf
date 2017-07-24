@@ -183,38 +183,6 @@ static int msm_csiphy_lane_config(struct csiphy_device *csiphy_dev,
 		msm_camera_io_w(csiphy_params->settle_cnt,
 			csiphybase + csiphy_dev->ctrl_reg->csiphy_reg.
 			mipi_csiphy_lnn_cfg3_addr + 0x40*j);
-
-		//LGE_CHANGE_S, HI544 line-noise issue fix, 2014-06-12, jongkwon.chae@lge.com, CASE#01569989
-		if(csiphy_dev->pdev->id == 0){	//main camera
-			#if defined (CONFIG_HI544) || defined (CONFIG_HI841) || \
-				defined(CONFIG_MACH_MSM8916_Y50_TRF_US) || \
-				defined(CONFIG_MACH_MSM8916_Y50C_TRF_US) || \
-				defined(CONFIG_MACH_MSM8916_C50_GLOBAL_COM) || \
-				defined(CONFIG_MACH_MSM8916_C50_TRF_US) || \
-				defined(CONFIG_MACH_MSM8916_C50_MPCS_US) || \
-				defined(CONFIG_MACH_MSM8916_C50_TMO_US) || \
-				defined(CONFIG_MACH_MSM8916_C50_SPR_US) || \
-				defined(CONFIG_MACH_MSM8916_C50_CRK_US) || \
-				defined(CONFIG_MACH_MSM8916_C30_TRF_US) || \
-				defined(CONFIG_MACH_MSM8916_C30C_TRF_US) || \
-				defined(CONFIG_MACH_MSM8916_C50DS_GLOBAL_COM) || \
-				defined(CONFIG_MACH_MSM8916_C50N_GLOBAL_COM)
-			if(csiphy_dev->hw_version >= CSIPHY_VERSION_V30) {
-				msm_camera_io_w(0xC, csiphybase + csiphy_dev->ctrl_reg->csiphy_reg.
-				mipi_csiphy_lnn_cfg4_addr + 0x40*j);
-			}
-			#endif
-		}
-		else {  //sub camera
-			#if defined (CONFIG_HI191)
-			if(csiphy_dev->hw_version >= CSIPHY_VERSION_V30) {
-				msm_camera_io_w(0xC, csiphybase + csiphy_dev->ctrl_reg->csiphy_reg.
-				mipi_csiphy_lnn_cfg4_addr + 0x40*j);
-			}
-			#endif
-		}
-		//LGE_CHANGE_E, HI544 line-noise issue fix, 2014-06-12, jongkwon.chae@lge.com, CASE#01569989
-
 		msm_camera_io_w(csiphy_dev->ctrl_reg->csiphy_reg.
 			mipi_csiphy_interrupt_mask_val, csiphybase +
 			csiphy_dev->ctrl_reg->csiphy_reg.

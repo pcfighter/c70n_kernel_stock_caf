@@ -47,8 +47,6 @@
 #include <linux/msm-bus-board.h>
 #include <soc/qcom/scm.h>
 
-#include <mach/board_lge.h>
-
 #include "mdss.h"
 #include "mdss_fb.h"
 #include "mdss_mdp.h"
@@ -59,9 +57,6 @@
 #define CREATE_TRACE_POINTS
 #include "mdss_mdp_trace.h"
 
-#ifdef CONFIG_LGE_DISPLAY_VSYNC_SKIP
-#include "lge/common/vsync_skip.h"
-#endif
 #define AXI_HALT_TIMEOUT_US	0x4000
 #define AUTOSUSPEND_TIMEOUT_MS	50
 
@@ -1171,6 +1166,10 @@ int mdss_hw_init(struct mdss_data_type *mdata)
 		writel_relaxed(1, offset + 16);
 	}
 
+	/* initialize csc matrix default value */
+	for (i = 0; i < mdata->nvig_pipes; i++)
+		vig[i].csc_coeff_set = MDSS_MDP_CSC_YUV2RGB_709L;
+
 	mdata->nmax_concurrent_ad_hw =
 		(mdata->mdp_rev < MDSS_MDP_HW_REV_103) ? 1 : 2;
 
@@ -1208,7 +1207,7 @@ static u32 mdss_mdp_res_init(struct mdss_data_type *mdata)
 
 	mdata->iclient = msm_ion_client_create(mdata->pdev->name);
 	if (IS_ERR_OR_NULL(mdata->iclient)) {
-		pr_err("msm_ion_client_create() return error (%p)\n",
+		pr_err("msm_ion_client_create() return error (%pK)\n",
 				mdata->iclient);
 		mdata->iclient = NULL;
 	}
@@ -1424,89 +1423,35 @@ static ssize_t mdss_mdp_show_capabilities(struct device *dev,
 	return cnt;
 }
 
-static DEVICE_ATTR(caps, S_IRUGO, mdss_mdp_show_capabilities, NULL);
+static ssize_t mdss_mdp_store_max_limit_bw(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t len)
+{
+	struct mdss_data_type *mdata = dev_get_drvdata(dev);
+	u32 data = 0;
 
-#ifdef CONFIG_LGE_DISPLAY_VSYNC_SKIP
-static DEVICE_ATTR(vfps, 0644, fps_show, fps_store);
-static DEVICE_ATTR(vfps_ratio, 0644, fps_ratio_show, NULL);
-static DEVICE_ATTR(vfps_fcnt, 0644, fps_fcnt_show, NULL);
-#endif
+	if (kstrtouint(buf, 0, &data)) {
+		pr_info("Not able scan to bw_mode_bitmap\n");
+	} else {
+		mdata->bw_mode_bitmap = data;
+		pr_debug("limit use case, bw_mode_bitmap = %d\n", data);
+	}
+
+	return len;
+}
+
+static DEVICE_ATTR(caps, S_IRUGO, mdss_mdp_show_capabilities, NULL);
+static DEVICE_ATTR(bw_mode_bitmap, S_IRUGO | S_IWUSR | S_IWGRP, NULL,
+		mdss_mdp_store_max_limit_bw);
 
 static struct attribute *mdp_fs_attrs[] = {
 	&dev_attr_caps.attr,
-#ifdef CONFIG_LGE_DISPLAY_VSYNC_SKIP
-	&dev_attr_vfps.attr,
-	&dev_attr_vfps_ratio.attr,
-	&dev_attr_vfps_fcnt.attr,
-#endif
+	&dev_attr_bw_mode_bitmap.attr,
 	NULL
 };
 
 static struct attribute_group mdp_fs_attr_group = {
 	.attrs = mdp_fs_attrs
 };
-
-#if defined(CONFIG_LGE_BW_CLK_TUNING)
-static ssize_t clk_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	sscanf(buf, "%d %d", &mdss_res->clk_factor.numer, &mdss_res->clk_factor.denom);
-	return count;
-}
-
-static ssize_t clk_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	int r;
-	r = snprintf(buf, PAGE_SIZE, "clock factor : %d %d\n", mdss_res->clk_factor.numer, mdss_res->clk_factor.denom);
-	return r;
-}
-
-static ssize_t ab_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	sscanf(buf, "%d %d", &mdss_res->ab_factor.numer, &mdss_res->ab_factor.denom);
-	return count;
-}
-
-static ssize_t ab_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	int r;
-	r = snprintf(buf, PAGE_SIZE, "ab factor : %d %d\n", mdss_res->ab_factor.numer, mdss_res->ab_factor.denom);
-	return r;
-}
-
-static ssize_t ib_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	sscanf(buf, "%d %d", &mdss_res->ib_factor.numer, &mdss_res->ib_factor.denom);
-	return count;
-}
-
-static ssize_t ib_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	int r;
-	r = snprintf(buf, PAGE_SIZE, "ib factor : %d %d\n", mdss_res->ib_factor.numer, mdss_res->ib_factor.denom);
-	return r;
-}
-
-static DEVICE_ATTR(clk, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, clk_show, clk_store);
-static DEVICE_ATTR(ab, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, ab_show, ab_store);
-static DEVICE_ATTR(ib, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, ib_show, ib_store);
-
-static struct attribute *mdp_tuning_attrs[] = {
-	&dev_attr_ab.attr,
-	&dev_attr_ib.attr,
-	&dev_attr_clk.attr,
-	NULL
-};
-
-static struct attribute_group mdp_tuning_attr_group = {
-	.attrs = mdp_tuning_attrs
-};
-#endif
 
 static int mdss_mdp_register_sysfs(struct mdss_data_type *mdata)
 {
@@ -1515,15 +1460,6 @@ static int mdss_mdp_register_sysfs(struct mdss_data_type *mdata)
 
 	rc = sysfs_create_group(&dev->kobj, &mdp_fs_attr_group);
 
-#if defined(CONFIG_LGE_BW_CLK_TUNING)
-	if (rc) {
-		pr_err("error in create mdp_fs_attr_group\n");
-		return rc;
-	}
-	rc = sysfs_create_group(&dev->kobj, &mdp_tuning_attr_group);
-	if (rc)
-		pr_err("error in create mdp_tuning_attr_group\n");
-#endif
 	return rc;
 }
 
@@ -1590,7 +1526,7 @@ static int mdss_mdp_probe(struct platform_device *pdev)
 	if (rc)
 		pr_debug("unable to map MDSS VBIF non-realtime base\n");
 	else
-		pr_debug("MDSS VBIF NRT HW Base addr=%p len=0x%x\n",
+		pr_debug("MDSS VBIF NRT HW Base addr=%pK len=0x%x\n",
 			mdata->vbif_nrt_io.base, mdata->vbif_nrt_io.len);
 
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
@@ -2657,6 +2593,105 @@ static void mdss_mdp_parse_vbif_qos(struct platform_device *pdev)
 	}
 }
 
+static void mdss_mdp_parse_max_bw_array(const u32 *arr,
+		struct mdss_max_bw_settings *max_bw_settings, int count)
+{
+	int i;
+	for (i = 0; i < count; i++) {
+		max_bw_settings->mdss_max_bw_mode = be32_to_cpu(arr[i*2]);
+		max_bw_settings->mdss_max_bw_val = be32_to_cpu(arr[(i*2)+1]);
+		max_bw_settings++;
+	}
+}
+
+static void mdss_mdp_parse_max_bandwidth(struct platform_device *pdev)
+{
+	struct mdss_data_type *mdata = platform_get_drvdata(pdev);
+	struct mdss_max_bw_settings *max_bw_settings;
+	int max_bw_settings_cnt = 0;
+	const u32 *max_bw;
+
+	max_bw = of_get_property(pdev->dev.of_node, "qcom,max-bw-settings",
+			&max_bw_settings_cnt);
+
+	if (!max_bw || !max_bw_settings_cnt) {
+		pr_debug("MDSS max bandwidth settings not found\n");
+		return;
+	}
+
+	max_bw_settings_cnt /= 2 * sizeof(u32);
+
+	max_bw_settings = devm_kzalloc(&pdev->dev, sizeof(*max_bw_settings)
+			* max_bw_settings_cnt, GFP_KERNEL);
+	if (!max_bw_settings) {
+		pr_err("Memory allocation failed for max_bw_settings\n");
+		return;
+	}
+
+	mdss_mdp_parse_max_bw_array(max_bw, max_bw_settings,
+			max_bw_settings_cnt);
+
+	mdata->max_bw_settings = max_bw_settings;
+	mdata->max_bw_settings_cnt = max_bw_settings_cnt;
+}
+
+static void mdss_mdp_parse_per_pipe_bandwidth(struct platform_device *pdev)
+{
+
+	struct mdss_data_type *mdata = platform_get_drvdata(pdev);
+	struct mdss_max_bw_settings *max_bw_per_pipe_settings;
+	int max_bw_settings_cnt = 0;
+	const u32 *max_bw_settings;
+	u32 max_bw, min_bw, threshold, i = 0;
+
+	max_bw_settings = of_get_property(pdev->dev.of_node,
+			"qcom,max-bandwidth-per-pipe-kbps",
+			&max_bw_settings_cnt);
+
+	if (!max_bw_settings || !max_bw_settings_cnt) {
+		pr_debug("MDSS per pipe max bandwidth settings not found\n");
+		return;
+	}
+
+	/* Support targets where a common per pipe max bw is provided */
+	if ((max_bw_settings_cnt / sizeof(u32)) == 1) {
+		mdata->max_bw_per_pipe = be32_to_cpu(max_bw_settings[0]);
+		mdata->max_per_pipe_bw_settings = NULL;
+		pr_debug("Common per pipe max bandwidth provided\n");
+		return;
+	}
+
+	max_bw_settings_cnt /= 2 * sizeof(u32);
+
+	max_bw_per_pipe_settings = devm_kzalloc(&pdev->dev,
+		    sizeof(struct mdss_max_bw_settings) * max_bw_settings_cnt,
+		    GFP_KERNEL);
+	if (!max_bw_per_pipe_settings) {
+		pr_err("Memory allocation failed for max_bw_settings\n");
+		return;
+	}
+
+	mdss_mdp_parse_max_bw_array(max_bw_settings, max_bw_per_pipe_settings,
+					max_bw_settings_cnt);
+	mdata->max_per_pipe_bw_settings = max_bw_per_pipe_settings;
+	mdata->mdss_per_pipe_bw_cnt = max_bw_settings_cnt;
+
+	/* Calculate min and max allowed per pipe BW */
+	min_bw = mdata->max_bw_high;
+	max_bw = 0;
+
+	while (i < max_bw_settings_cnt) {
+		threshold = mdata->max_per_pipe_bw_settings[i].mdss_max_bw_val;
+		if (threshold > max_bw)
+			max_bw = threshold;
+		if (threshold < min_bw)
+			min_bw = threshold;
+		++i;
+	}
+	mdata->max_bw_per_pipe = max_bw;
+	mdata->min_bw_per_pipe = min_bw;
+}
+
 static int mdss_mdp_parse_dt_misc(struct platform_device *pdev)
 {
 	struct mdss_data_type *mdata = platform_get_drvdata(pdev);
@@ -2728,13 +2763,6 @@ static int mdss_mdp_parse_dt_misc(struct platform_device *pdev)
 	mdata->ab_factor.denom = 1;
 	mdss_mdp_parse_dt_fudge_factors(pdev, "qcom,mdss-ab-factor",
 		&mdata->ab_factor);
-#ifdef CONFIG_LGE_MANUAL_FUDGE_FACTOR
-	if(lge_get_boot_mode() == LGE_BOOT_MODE_CHARGERLOGO)
-	{
-		mdata->ab_factor.numer = 2;
-		mdata->ab_factor.denom = 1;
-	}
-#endif
 
 	/*
 	 * 1.2 factor on ib as default value. This value is
@@ -2771,13 +2799,6 @@ static int mdss_mdp_parse_dt_misc(struct platform_device *pdev)
 	mdata->clk_factor.denom = 1;
 	mdss_mdp_parse_dt_fudge_factors(pdev, "qcom,mdss-clk-factor",
 		&mdata->clk_factor);
-#ifdef CONFIG_LGE_MANUAL_FUDGE_FACTOR
-	if(lge_get_boot_mode() == LGE_BOOT_MODE_CHARGERLOGO)
-	{
-		mdata->clk_factor.numer = 2;
-		mdata->clk_factor.denom = 1;
-	}
-#endif
 
 	rc = of_property_read_u32(pdev->dev.of_node,
 			"qcom,max-bandwidth-low-kbps", &mdata->max_bw_low);
@@ -2789,10 +2810,9 @@ static int mdss_mdp_parse_dt_misc(struct platform_device *pdev)
 	if (rc)
 		pr_debug("max bandwidth (high) property not specified\n");
 
-	rc = of_property_read_u32(pdev->dev.of_node,
-		"qcom,max-bandwidth-per-pipe-kbps", &mdata->max_bw_per_pipe);
-	if (rc)
-		pr_debug("max bandwidth (per pipe) property not specified\n");
+	mdss_mdp_parse_per_pipe_bandwidth(pdev);
+
+	mdss_mdp_parse_max_bandwidth(pdev);
 
 	mdata->nclk_lvl = mdss_mdp_parse_dt_prop_len(pdev,
 					"qcom,mdss-clk-levels");

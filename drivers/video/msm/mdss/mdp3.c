@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  * Copyright (C) 2007 Google Incorporated
  *
  * This software is licensed under the terms of the GNU General Public
@@ -57,6 +57,7 @@
 #include "mdp3_ppp.h"
 #include "mdss_debug.h"
 
+#define AUTOSUSPEND_TIMEOUT_MS	100
 #define MISR_POLL_SLEEP                 2000
 #define MISR_POLL_TIMEOUT               32000
 #define MDP3_REG_CAPTURED_DSI_PCLK_MASK 1
@@ -179,8 +180,7 @@ void mdp3_irq_enable(int type)
 
 	pr_debug("mdp3_irq_enable type=%d\n", type);
 	spin_lock_irqsave(&mdp3_res->irq_lock, flag);
-	mdp3_res->irq_ref_count[type] += 1;
-	if (mdp3_res->irq_ref_count[type] > 1) {
+	if (mdp3_res->irq_ref_count[type] > 0) {
 		pr_debug("interrupt %d already enabled\n", type);
 		spin_unlock_irqrestore(&mdp3_res->irq_lock, flag);
 		return;
@@ -189,6 +189,7 @@ void mdp3_irq_enable(int type)
 	mdp3_res->irq_mask |= BIT(type);
 	MDP3_REG_WRITE(MDP3_REG_INTR_ENABLE, mdp3_res->irq_mask);
 
+	mdp3_res->irq_ref_count[type] += 1;
 	spin_unlock_irqrestore(&mdp3_res->irq_lock, flag);
 }
 
@@ -488,7 +489,8 @@ int mdp3_clk_set_rate(int clk_type, unsigned long clk_rate,
 			if (ret)
 				pr_err("clk_set_rate failed ret=%d\n", ret);
 			else
-				pr_debug("mdp clk rate=%lu\n", rounded_rate);
+				pr_debug("mdp clk rate=%lu, client = %d\n",
+					rounded_rate, client);
 		}
 		mutex_unlock(&mdp3_res->res_mutex);
 	} else {
@@ -588,16 +590,45 @@ static void mdp3_clk_remove(void)
 
 int mdp3_clk_enable(int enable, int dsi_clk)
 {
-	int rc;
+	int rc = 0;
+	int changed = 0;
 
 	pr_debug("MDP CLKS %s\n", (enable ? "Enable" : "Disable"));
 
 	mutex_lock(&mdp3_res->res_mutex);
-	rc = mdp3_clk_update(MDP3_CLK_AHB, enable);
-	rc |= mdp3_clk_update(MDP3_CLK_AXI, enable);
-	rc |= mdp3_clk_update(MDP3_CLK_MDP_SRC, enable);
-	rc |= mdp3_clk_update(MDP3_CLK_MDP_CORE, enable);
-	rc |= mdp3_clk_update(MDP3_CLK_VSYNC, enable);
+
+	if (enable) {
+		if (mdp3_res->clk_ena == 0)
+			changed++;
+		mdp3_res->clk_ena++;
+	} else {
+		if (mdp3_res->clk_ena) {
+			mdp3_res->clk_ena--;
+			if (mdp3_res->clk_ena == 0)
+				changed++;
+		} else {
+			pr_err("Can not be turned off\n");
+		}
+	}
+	pr_debug("%s: clk_ena=%d changed=%d enable=%d\n",
+		__func__, mdp3_res->clk_ena, changed, enable);
+
+	if (changed) {
+		if (enable)
+			pm_runtime_get_sync(&mdp3_res->pdev->dev);
+
+		rc = mdp3_clk_update(MDP3_CLK_AHB, enable);
+		rc |= mdp3_clk_update(MDP3_CLK_AXI, enable);
+		rc |= mdp3_clk_update(MDP3_CLK_MDP_SRC, enable);
+		rc |= mdp3_clk_update(MDP3_CLK_MDP_CORE, enable);
+		rc |= mdp3_clk_update(MDP3_CLK_VSYNC, enable);
+
+	    if (!enable) {
+			pm_runtime_mark_last_busy(&mdp3_res->pdev->dev);
+			pm_runtime_put_autosuspend(&mdp3_res->pdev->dev);
+		}
+	}
+
 	mutex_unlock(&mdp3_res->res_mutex);
 	return rc;
 }
@@ -628,13 +659,17 @@ void mdp3_bus_bw_iommu_enable(int enable, int client)
 		if (mdp3_res->allow_iommu_update)
 			mdp3_iommu_enable(client);
 		if (ref_cnt == 1) {
+			pm_runtime_get_sync(&mdp3_res->pdev->dev);
 			ab = bus_handle->restore_ab[client];
 			ib = bus_handle->restore_ib[client];
 			mdp3_bus_scale_set_quota(client, ab, ib);
 		}
 	} else {
-		if (ref_cnt == 0)
+		if (ref_cnt == 0) {
 			mdp3_bus_scale_set_quota(client, 0, 0);
+			pm_runtime_mark_last_busy(&mdp3_res->pdev->dev);
+			pm_runtime_put_autosuspend(&mdp3_res->pdev->dev);
+		}
 		mdp3_iommu_disable(client);
 	}
 
@@ -874,11 +909,19 @@ static int mdp3_check_version(void)
 {
 	int rc;
 
+	rc = mdp3_footswitch_ctrl(1);
+	if (rc) {
+		pr_err("unable to turn on FS\n");
+		return rc;
+	}
+
 	rc = mdp3_clk_update(MDP3_CLK_AHB, 1);
 	rc |= mdp3_clk_update(MDP3_CLK_AXI, 1);
 	rc |= mdp3_clk_update(MDP3_CLK_MDP_CORE, 1);
-	if (rc)
+	if (rc) {
+		mdp3_footswitch_ctrl(0);
 		return rc;
+	}
 
 	mdp3_res->mdp_rev = MDP3_REG_READ(MDP3_REG_HW_VERSION);
 
@@ -887,6 +930,10 @@ static int mdp3_check_version(void)
 	rc |= mdp3_clk_update(MDP3_CLK_MDP_CORE, 0);
 	if (rc)
 		pr_err("fail to turn off the MDP3_CLK_AHB clk\n");
+
+	rc = mdp3_footswitch_ctrl(0);
+	if (rc)
+		pr_err("unable to turn off FS\n");
 
 	if (mdp3_res->mdp_rev != MDP_CORE_HW_VERSION) {
 		pr_err("mdp_hw_revision=%x mismatch\n", mdp3_res->mdp_rev);
@@ -931,9 +978,7 @@ int mdp3_dynamic_clock_gating_ctrl(int enable)
 	int rc = 0;
 	int cgc_cfg = 0;
 	/*Disable dynamic auto clock gating*/
-	rc = mdp3_clk_update(MDP3_CLK_AHB, 1);
-	rc |= mdp3_clk_update(MDP3_CLK_AXI, 1);
-	rc |= mdp3_clk_update(MDP3_CLK_MDP_CORE, 1);
+	rc = mdp3_clk_enable(1, 0);
 	if (rc) {
 		pr_err("fail to turn on MDP core clks\n");
 		return rc;
@@ -951,9 +996,7 @@ int mdp3_dynamic_clock_gating_ctrl(int enable)
 		VBIF_REG_WRITE(MDP3_VBIF_REG_FORCE_EN, 0x3);
 	}
 
-	rc = mdp3_clk_update(MDP3_CLK_AHB, 0);
-	rc |= mdp3_clk_update(MDP3_CLK_AXI, 0);
-	rc |= mdp3_clk_update(MDP3_CLK_MDP_CORE, 0);
+	rc = mdp3_clk_enable(0, 0);
 	if (rc)
 		pr_warn("fail to turn off MDP core clks\n");
 
@@ -1053,7 +1096,7 @@ static int mdp3_res_init(void)
 
 	mdp3_res->ion_client = msm_ion_client_create(mdp3_res->pdev->name);
 	if (IS_ERR_OR_NULL(mdp3_res->ion_client)) {
-		pr_err("msm_ion_client_create() return error (%p)\n",
+		pr_err("msm_ion_client_create() return error (%pK)\n",
 				mdp3_res->ion_client);
 		mdp3_res->ion_client = NULL;
 		return -EINVAL;
@@ -1321,6 +1364,9 @@ static int mdp3_parse_dt(struct platform_device *pdev)
 				pdev->dev.of_node, "qcom,mdss-has-panic-ctrl");
 	mdp3_res->dma[MDP3_DMA_P].has_panic_ctrl = panic_ctrl;
 
+	mdp3_res->idle_pc_enabled = of_property_read_bool(
+		pdev->dev.of_node, "qcom,mdss-idle-power-collapse-enabled");
+
 	return 0;
 }
 
@@ -1482,7 +1528,7 @@ void mdp3_unmap_iommu(struct ion_client *client, struct ion_handle *handle)
 	mutex_lock(&mdp3_res->iommu_lock);
 	meta = mdp3_iommu_meta_lookup(table);
 	if (!meta) {
-		WARN(1, "%s: buffer was never mapped for %p\n", __func__,
+		WARN(1, "%s: buffer was never mapped for %pK\n", __func__,
 				handle);
 		mutex_unlock(&mdp3_res->iommu_lock);
 		goto out;
@@ -1510,7 +1556,7 @@ static void mdp3_iommu_meta_add(struct mdp3_iommu_meta *meta)
 		} else if (meta->table > entry->table) {
 			p = &(*p)->rb_right;
 		} else {
-			pr_err("%s: handle %p already exists\n", __func__,
+			pr_err("%s: handle %pK already exists\n", __func__,
 				entry->handle);
 			BUG();
 		}
@@ -1572,7 +1618,7 @@ static int mdp3_iommu_map_iommu(struct mdp3_iommu_meta *meta,
 	ret = iommu_map_range(domain, meta->iova_addr + padding,
 			table->sgl, size, prot);
 	if (ret) {
-		pr_err("%s: could not map %pa in domain %p\n",
+		pr_err("%s: could not map %pa in domain %pK\n",
 			__func__, &meta->iova_addr, domain);
 			unmap_size = padding;
 		goto out2;
@@ -1695,12 +1741,12 @@ int mdp3_self_map_iommu(struct ion_client *client, struct ion_handle *handle,
 		}
 	} else {
 		if (iommu_meta->flags != iommu_flags) {
-			pr_err("%s: handle %p is already mapped with diff flag\n",
+			pr_err("%s: handle %pK is already mapped with diff flag\n",
 				__func__, handle);
 			ret = -EINVAL;
 			goto out_unlock;
 		} else if (iommu_meta->mapped_size != iova_length) {
-			pr_err("%s: handle %p is already mapped with diff len\n",
+			pr_err("%s: handle %pK is already mapped with diff len\n",
 				__func__, handle);
 			ret = -EINVAL;
 			goto out_unlock;
@@ -1822,7 +1868,7 @@ done:
 		data->addr += img->offset;
 		data->len -= img->offset;
 
-		pr_debug("mem=%d ihdl=%p buf=0x%pa len=0x%x\n", img->memory_id,
+		pr_debug("mem=%d ihdl=%pK buf=0x%pa len=0x%x\n", img->memory_id,
 			 data->srcp_ihdl, &data->addr, data->len);
 	} else {
 		mdp3_put_img(data, client);
@@ -2055,7 +2101,7 @@ static int mdp3_alloc(struct msm_fb_data_type *mfd)
 		return ret;
 	}
 
-	pr_info("allocating %u bytes at %p (%lx phys) for fb %d\n",
+	pr_info("allocating %u bytes at %pK (%lx phys) for fb %d\n",
 		size, virt, phys, mfd->index);
 
 	mfd->fbi->screen_base = virt;
@@ -2230,6 +2276,15 @@ static int mdp3_panel_register_done(struct mdss_panel_data *pdata)
 {
 	int rc = 0;
 
+	/*
+	* If idle pc feature is not enabled, then get a reference to the
+	* runtime device which will be released when device is turned off
+	*/
+	if (!mdp3_res->idle_pc_enabled ||
+		pdata->panel_info.type != MIPI_CMD_PANEL) {
+		pm_runtime_get_sync(&mdp3_res->pdev->dev);
+	}
+
 	if (pdata->panel_info.cont_splash_enabled) {
 		if (!mdp3_is_display_on(pdata)) {
 			pr_err("continuous splash, but bootloader is not\n");
@@ -2250,7 +2305,20 @@ static int mdp3_panel_register_done(struct mdss_panel_data *pdata)
 	if (pdata->panel_info.cont_splash_enabled == false)
 		mdp3_res->allow_iommu_update = true;
 
+	mdss_res->pdata = pdata;
 	return rc;
+}
+
+/* mdp3_autorefresh_disable() - Disable Auto refresh
+ * @ panel_info : pointer to panel configuration structure
+ *
+ * This function displable Auto refresh block for command mode panel.
+ */
+int mdp3_autorefresh_disable(struct mdss_panel_info *panel_info) {
+	if ((panel_info->type == MIPI_CMD_PANEL) &&
+		(MDP3_REG_READ(MDP3_REG_AUTOREFRESH_CONFIG_P)))
+		MDP3_REG_WRITE(MDP3_REG_AUTOREFRESH_CONFIG_P, 0);
+	return 0;
 }
 
 int mdp3_splash_done(struct mdss_panel_info *panel_info)
@@ -2295,6 +2363,7 @@ static int mdp3_debug_init(struct platform_device *pdev)
 	mdss_res = mdata;
 
 	mdata->debug_inf.debug_enable_clock = mdp3_debug_enable_clock;
+	mdata->mdp_rev = mdp3_res->mdp_rev;
 
 	rc = mdss_debugfs_init(mdata);
 	if (rc)
@@ -2536,22 +2605,35 @@ EXPORT_SYMBOL(mdp3_panel_intf_type);
 int mdp3_footswitch_ctrl(int enable)
 {
 	int rc = 0;
+	int active_cnt = 0;
 
 	if (!mdp3_res->fs_ena && enable) {
 		rc = regulator_enable(mdp3_res->fs);
 		if (rc) {
 			pr_err("mdp footswitch ctrl enable failed\n");
 			return -EINVAL;
-		} else {
-			pr_debug("mdp footswitch ctrl enable success\n");
-			mdp3_res->fs_ena = true;
 		}
-	} else if (mdp3_res->fs_ena && !enable) {
+		pr_debug("mdp footswitch ctrl enable success\n");
+		mdp3_enable_regulator(true);
+		mdp3_res->fs_ena = true;
+	} else if (!enable && mdp3_res->fs_ena) {
+		active_cnt = atomic_read(&mdp3_res->active_intf_cnt);
+		if (active_cnt != 0) {
+			/*
+			 * Turning off GDSC while overlays are still
+			 * active.
+			 */
+			mdp3_res->idle_pc = true;
+			pr_debug("idle pc. active overlays=%d\n",
+				active_cnt);
+		}
+		mdp3_enable_regulator(false);
 		rc = regulator_disable(mdp3_res->fs);
-		if (rc)
+		if (rc) {
 			pr_warn("mdp footswitch ctrl disable failed\n");
-		else
-			mdp3_res->fs_ena = false;
+			return -EINVAL;
+		}
+		mdp3_res->fs_ena = false;
 	} else {
 		pr_debug("mdp3 footswitch ctrl already configured\n");
 	}
@@ -2596,6 +2678,7 @@ static int mdp3_probe(struct platform_device *pdev)
 	mutex_init(&mdp3_res->res_mutex);
 	spin_lock_init(&mdp3_res->irq_lock);
 	platform_set_drvdata(pdev, mdp3_res);
+	atomic_set(&mdp3_res->active_intf_cnt, 0);
 
 	mdp3_res->mdss_util = mdss_get_util_intf();
 	if (mdp3_res->mdss_util == NULL) {
@@ -2608,6 +2691,8 @@ static int mdp3_probe(struct platform_device *pdev)
 	mdp3_res->mdss_util->iommu_ctrl = mdp3_iommu_ctrl;
 	mdp3_res->mdss_util->bus_scale_set_quota = mdp3_bus_scale_set_quota;
 	mdp3_res->mdss_util->panel_intf_type = mdp3_panel_intf_type;
+	mdp3_res->mdss_util->dyn_clk_gating_ctrl =
+		mdp3_dynamic_clock_gating_ctrl;
 
 	rc = mdp3_parse_dt(pdev);
 	if (rc)
@@ -2638,9 +2723,22 @@ static int mdp3_probe(struct platform_device *pdev)
 		goto probe_done;
 	}
 
+	pm_runtime_set_autosuspend_delay(&pdev->dev, AUTOSUSPEND_TIMEOUT_MS);
+	if (mdp3_res->idle_pc_enabled) {
+		pr_debug("%s: Enabling autosuspend\n", __func__);
+		pm_runtime_use_autosuspend(&pdev->dev);
+	}
 	/* Enable PM runtime */
 	pm_runtime_set_suspended(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
+
+	if (!pm_runtime_enabled(&pdev->dev)) {
+		rc = mdp3_footswitch_ctrl(1);
+		if (rc) {
+			pr_err("unable to turn on FS\n");
+			goto probe_done;
+		}
+	}
 
 	rc = mdp3_register_sysfs(pdev);
 	if (rc)
@@ -2655,12 +2753,6 @@ static int mdp3_probe(struct platform_device *pdev)
 	if (rc)
 		pr_err("unable to configure interrupt callback\n");
 	mdp3_res->mdss_util->mdp_probe_done = true;
-
-	/*
-	 * Keep a reference to the runtime pm till device is turned
-	 * off, where this reference will be released.
-	 */
-	pm_runtime_get_sync(&pdev->dev);
 
 probe_done:
 	if (IS_ERR_VALUE(rc))
@@ -2699,13 +2791,13 @@ int mdp3_panel_get_boot_cfg(void)
 
 static  int mdp3_suspend_sub(void)
 {
-	mdp3_enable_regulator(false);
+	mdp3_footswitch_ctrl(0);
 	return 0;
 }
 
 static  int mdp3_resume_sub(void)
 {
-	mdp3_enable_regulator(true);
+	mdp3_footswitch_ctrl(1);
 	return 0;
 }
 
@@ -2757,9 +2849,15 @@ static int mdp3_resume(struct platform_device *pdev)
 #ifdef CONFIG_PM_RUNTIME
 static int mdp3_runtime_resume(struct device *dev)
 {
-	dev_dbg(dev, "Display pm runtime resume\n");
+	bool device_on = true;
 
-	mdp3_enable_regulator(true);
+	dev_dbg(dev, "Display pm runtime resume, active overlay cnt=%d\n",
+		atomic_read(&mdp3_res->active_intf_cnt));
+
+	/* do not resume panels when coming out of idle power collapse */
+	if (!mdp3_res->idle_pc)
+		device_for_each_child(dev, &device_on, mdss_fb_suspres_panel);
+
 	mdp3_footswitch_ctrl(1);
 
 	return 0;
@@ -2774,10 +2872,21 @@ static int mdp3_runtime_idle(struct device *dev)
 
 static int mdp3_runtime_suspend(struct device *dev)
 {
-	dev_dbg(dev, "Display pm runtime suspend\n");
+	bool device_on = false;
 
-	mdp3_enable_regulator(false);
+	dev_dbg(dev, "Display pm runtime suspend, active overlay cnt=%d\n",
+		atomic_read(&mdp3_res->active_intf_cnt));
+
+	if (mdp3_res->clk_ena) {
+		pr_debug("Clk turned on...MDP suspend failed\n");
+		return -EBUSY;
+	}
+
 	mdp3_footswitch_ctrl(0);
+
+	/* do not suspend panels when going in to idle power collapse */
+	if (!mdp3_res->idle_pc)
+		device_for_each_child(dev, &device_on, mdss_fb_suspres_panel);
 
 	return 0;
 }

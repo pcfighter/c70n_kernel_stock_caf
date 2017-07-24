@@ -286,6 +286,7 @@ static int msm_dt_node_to_map(struct pinctrl_dev *pctldev,
 	char *fn_name;
 	u32 val;
 	unsigned long *cfg;
+	unsigned int fn_name_len = 0;
 	int cfg_cnt = 0, map_cnt = 0, func_cnt = 0, ret = 0;
 
 	dd = pinctrl_dev_get_drvdata(pctldev);
@@ -331,14 +332,14 @@ static int msm_dt_node_to_map(struct pinctrl_dev *pctldev,
 	}
 	/* Get function mapping */
 	of_property_read_u32(parent, "qcom,pin-func", &val);
-	fn_name = kzalloc(strlen(grp_name) + strlen("-func"),
-						GFP_KERNEL);
+
+	fn_name_len = strlen(grp_name) + strlen("-func") + 1;
+	fn_name = kzalloc(fn_name_len, GFP_KERNEL);
 	if (!fn_name) {
 		ret = -ENOMEM;
 		goto func_err;
 	}
-	snprintf(fn_name, strlen(grp_name) + strlen("-func") + 1, "%s%s",
-						grp_name, "-func");
+	snprintf(fn_name, fn_name_len, "%s-func", grp_name);
 	map[*nmaps].data.mux.group = grp_name;
 	map[*nmaps].data.mux.function = fn_name;
 	map[*nmaps].type = PIN_MAP_TYPE_MUX_GROUP;
@@ -442,15 +443,6 @@ static int msm_pinctrl_dt_parse_pins(struct device_node *dev_node,
 
 	dev = dd->dev;
 	for_each_child_of_node(dev_node, pgrp_np) {
-#ifdef CONFIG_MACH_LGE
-                /* check status=okay for pinctrl child node */
-                if (!of_device_is_available(pgrp_np))
-                        continue;
-
-                if (!of_device_is_available_revision(pgrp_np))
-                        continue;
-#endif
-
 		if (!of_find_property(pgrp_np, "qcom,pins", NULL))
 			continue;
 		if (of_find_property(pgrp_np, "qcom,pin-func", NULL))
@@ -478,15 +470,6 @@ static int msm_pinctrl_dt_parse_pins(struct device_node *dev_node,
 	 * function
 	 */
 	for_each_child_of_node(dev_node, pgrp_np) {
-#ifdef CONFIG_MACH_LGE
-                /* check status=okay for pinctrl child node */
-                if (!of_device_is_available(pgrp_np))
-                        continue;
-
-                if (!of_device_is_available_revision(pgrp_np))
-                        continue;
-#endif
-
 		if (!of_find_property(pgrp_np, "qcom,pins", NULL))
 			continue;
 		curr_grp = pin_grps + grp_index;

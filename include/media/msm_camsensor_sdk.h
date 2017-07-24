@@ -105,9 +105,6 @@ enum msm_sensor_power_seq_gpio_t {
 	SENSOR_GPIO_VANA,
 	SENSOR_GPIO_VDIG,
 	SENSOR_GPIO_VAF,
-/* LGE_CHANGE_S, Add gpio to control LDO*/
-    SENSOR_GPIO_LDAF_EN,
- /* LGE_CHANGE_E, Add gpio to control LDO*/
 	SENSOR_GPIO_FL_EN,
 	SENSOR_GPIO_FL_NOW,
 	SENSOR_GPIO_FL_RESET,
@@ -198,19 +195,6 @@ struct msm_sensor_power_setting {
 	void *data[10];
 };
 
-//LGE_CHANGE_S, apply proper power setting, 2014-10-29, yt.jeon@lge.com
-#if 1
-struct msm_sensor_power_setting_array {
-	struct msm_sensor_power_setting *power_setting_a;
-	struct msm_sensor_power_setting *power_setting;
-	uint16_t size_a;
-	uint16_t size;
-	struct msm_sensor_power_setting *power_down_setting_a;
-	struct msm_sensor_power_setting *power_down_setting;
-	uint16_t size_down_a;
-	uint16_t size_down;
-};
-#else //QCT
 struct msm_sensor_power_setting_array {
 	struct msm_sensor_power_setting  power_setting_a[MAX_POWER_CONFIG];
 	struct msm_sensor_power_setting *power_setting;
@@ -219,8 +203,6 @@ struct msm_sensor_power_setting_array {
 	struct msm_sensor_power_setting *power_down_setting;
 	uint16_t size_down;
 };
-#endif
-//LGE_CHANGE_E, apply proper power setting, 2014-10-29, yt.jeon@lge.com
 
 struct msm_sensor_init_params {
 	/* mask of modes supported: 2D, 3D */
@@ -242,11 +224,6 @@ struct msm_camera_sensor_slave_info {
 	char actuator_name[32];
 	char ois_name[32];
 	char flash_name[32];
-
-#if defined(CONFIG_MSM_OTP) || defined(LGE_CAMERA_USE_OTP)
-	char otp_name[32];
-#endif
-
 	enum msm_sensor_camera_id_t camera_id;
 	uint16_t slave_addr;
 	enum i2c_freq_mode_t i2c_freq_mode;
@@ -271,7 +248,6 @@ struct msm_camera_i2c_reg_setting {
 	enum msm_camera_i2c_reg_addr_type addr_type;
 	enum msm_camera_i2c_data_type data_type;
 	uint16_t delay;
-	uint16_t *value;	/*LGE_CHANGE, add soc exif, 2013-10-04, kwangsik83.kim@lge.com*/
 	enum msm_camera_qup_i2c_write_batch_t qup_i2c_batch;
 };
 

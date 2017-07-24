@@ -952,37 +952,14 @@ static int msm_tlmm_gp_irq_suspend(void)
 static void msm_tlmm_gp_irq_resume(void)
 {
 	unsigned long irq_flags;
-	unsigned long i, intstat;
+	unsigned long i;
 	struct msm_tlmm_irq_chip *ic = &msm_tlmm_gp_irq;
 	int num_irqs = ic->num_irqs;
 
-	struct msm_pintype_info *pinfo = ic_to_pintype(ic);
-	struct gpio_chip *gc = pintype_get_gc(pinfo);
-	unsigned int virq = 0;
-
 	spin_lock_irqsave(&ic->irq_lock, irq_flags);
 	for_each_set_bit(i, ic->wake_irqs, num_irqs)
-	{
-		intstat = msm_tlmm_get_intr_status(ic, i);
-		if (intstat) {
-			virq = msm_tlmm_gp_to_irq(gc, i);
-			if (virq)
-			{
-				struct irq_desc *virq_desc = NULL;
-				virq_desc = irq_to_desc(virq);
-				if (virq_desc && virq_desc->action != NULL
-						&& virq_desc->action->name != NULL)
-					pr_err("%s: virq %d, virq->name : %s\n",
-					 __func__, virq, virq_desc->action->name);
-				else
-					pr_err("%s: virq %d registered improperly!\n",
-							__func__, virq);
-			}
-			else
-				pr_err("%s: stray virq\n", __func__);
-		}
 		msm_tlmm_set_intr_cfg_enable(ic, i, 0);
-	}
+
 	for_each_set_bit(i, ic->enabled_irqs, num_irqs)
 		msm_tlmm_set_intr_cfg_enable(ic, i, 1);
 	mb();

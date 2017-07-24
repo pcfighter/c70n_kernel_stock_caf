@@ -56,24 +56,6 @@
 
 #define NONE_PANEL "none"
 
-#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
-#define DB7400_CUT5 5
-#define DB7400_CUT6 6
-#define DB7400_CUT7 7
-#endif
-
-#if defined (CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL)
-#define LGD_INCELL_PHASE3_APPLY_POWER_SEQUENCE 1
-#endif
-
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
-enum {
-	SWIPE_DONE = 0,
-	DO_SWIPE,
-	ABNORMAL_SWIPE,
-};
-#endif
-
 enum {		/* mipi dsi panel */
 	DSI_VIDEO_MODE,
 	DSI_CMD_MODE,
@@ -317,21 +299,6 @@ enum {
 #define DSI_EV_STOP_HS_CLK_LANE		0x40000000
 #define DSI_EV_MDP_BUSY_RELEASE		0x80000000
 
-#if defined(CONFIG_JDI_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL)
-#define DSI_LANE_CTRL_HS_MASK            0x10000000
-#define DSI_LANE_CTRL_LP_MASK            0x0FFFFFFF
-#endif
-
-#if defined (CONFIG_LGE_MODULE_DETECT)
-enum {
-	DETECTION_ERROR = -1,
-	PRIMARY_MODULE,
-	SECONDARY_MODULE,
-	TERITARY_MODULE,
-	QUATENARY_MODULE,
-};
-#endif
-
 struct mdss_dsi_ctrl_pdata {
 	int ndx;	/* panel_num */
 	int (*on) (struct mdss_panel_data *pdata);
@@ -372,63 +339,7 @@ struct mdss_dsi_ctrl_pdata {
 	int irq_cnt;
 	int disp_te_gpio;
 	int rst_gpio;
-#if defined(CONFIG_LCD_LGE_IOVCC_EXT_LDO)
-	int disp_iovcc_gpio;
-#endif
 	int disp_en_gpio;
-#if defined (CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL)
-	int disp_lcd_ldo_1v8_gpio;
-	int disp_lcd_ldo_3v0_gpio;
-	int disp_dsv_en_gpio;
-#endif
-#if defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL)
-#if defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
-	int disp_lcd_ldo_1v8_gpio;
-	int disp_dsv_p_gpio;
-	int disp_dsv_n_gpio;
-	int t_rst_gpio;
-#else
-	int disp_lcd_ldo_1v8_gpio;
-	int disp_dsv_p_gpio;
-	int disp_dsv_n_gpio;
-#endif
-#endif
-#if defined (CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)
-	int disp_dsv_p_gpio;
-	int disp_dsv_n_gpio;
-#endif
-#if defined (CONFIG_LGD_LD083_VIDEO_WUXGA_PT_PANEL)
-	int disp_lcd_ldo_gpio;
-#elif defined(CONFIG_LGD_INCELL_VIDEO_WVGA_PT_PANEL)
-	int disp_fd_gpio;
-	int disp_iovcc_gpio;
-#endif
-#if defined(CONFIG_LGE_MIPI_DSI_BYD_ILI9806E_WVGA)
-	int disp_iovcc_gpio;
-#endif
-#if defined(CONFIG_LGE_MIPI_DSI_LGD_NT35521_E7II_WXGA)
-#if defined(CONFIG_BACKLIGHT_LM3632) || defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL)
-//nothing
-#else
-	int disp_dsv_p_gpio;
-	int disp_dsv_n_gpio;
-#if !defined(CONFIG_LGE_MIPI_DSI_LGD_NT35521_E7II_WXGA)
-	int disp_iovcc_gpio;
-#endif
-#endif
-#endif
-#if defined(CONFIG_MFD_DW8768)
-	int disp_dsv_p_gpio;
-	int disp_dsv_n_gpio;
-#endif
-
-#if defined(CONFIG_LCD_VDD_EXT_LDO)
-	int disp_ext_vdd_gpio;
-#endif
-#if defined(CONFIG_LCD_VDD_VDDIO_EXT_LDO)
-	int disp_ext_vdd_gpio;
-	int disp_ext_vddio_gpio;
-#endif
 	int bklt_en_gpio;
 	int mode_gpio;
 	int bklt_ctrl;	/* backlight ctrl */
@@ -440,9 +351,6 @@ struct mdss_dsi_ctrl_pdata {
 	int new_fps;
 	int pwm_enabled;
 	int clk_lane_cnt;
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
-	struct notifier_block   notif;
-#endif
 	bool panel_bias_vreg;
 	bool dsi_irq_line;
 	atomic_t te_irq_ready;
@@ -465,25 +373,7 @@ struct mdss_dsi_ctrl_pdata {
 	struct dsi_panel_cmds on_cmds;
 	struct dsi_panel_cmds post_dms_on_cmds;
 	struct dsi_panel_cmds post_panel_on_cmds;
-#if defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)
 	struct dsi_panel_cmds off_cmds;
-	struct dsi_panel_cmds off_cmds_extra;
-#else
-	struct dsi_panel_cmds off_cmds;
-#endif
-#if defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL)
-#if defined (CONFIG_LGD_INCELL_DB7400_VIDEO_HD_DUAL_PANEL)
-	struct dsi_panel_cmds off_cmds_extra;
-	struct dsi_panel_cmds on_cmds_for_glanceview;
-#endif
-	bool do_lut_update;
-	bool is_available_esd_recovery;
-	bool is_detected_esd;
-	struct dsi_panel_cmds lut_update_cmds;
-#endif
-#if defined(CONFIG_JDI_INCELL_VIDEO_HD_PANEL) && defined(CONFIG_LGD_INCELL_DB7400_VIDEO_HD_DUAL_PANEL)
-	struct dsi_panel_cmds off_cmds_extra;
-#endif
 	struct dsi_panel_cmds status_cmds;
 	u32 status_cmds_rlen;
 	u32 status_value;
@@ -519,11 +409,6 @@ struct mdss_dsi_ctrl_pdata {
 	int rx_len;
 
 	struct dsi_pinctrl_res pin_res;
-#if defined(CONFIG_LGD_INCELL_VIDEO_WVGA_PT_PANEL) || defined(CONFIG_LGD_INCELL_VIDEO_FWVGA_PT_PANEL) || defined(CONFIG_LGE_MIPI_DSI_BYD_ILI9806E_WVGA) || defined(CONFIG_LGE_MIPI_DSI_LGD_NT35521_E7II_WXGA)
-	char ldo_mode;
-#elif defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL)
-	char ldo_mode;
-#endif
 
 	unsigned long dma_size;
 	dma_addr_t dma_addr;
@@ -533,9 +418,8 @@ struct mdss_dsi_ctrl_pdata {
 	int horizontal_idle_cnt;
 	struct panel_horizontal_idle *line_idle;
 	struct mdss_util_intf *mdss_util;
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
-	struct lge_pan_data *lge_pan_data;
-#endif
+
+	bool dfps_status;	/* dynamic refresh status */
 };
 
 struct dsi_status_data {
@@ -548,10 +432,10 @@ int dsi_panel_device_register(struct device_node *pan_node,
 				struct mdss_dsi_ctrl_pdata *ctrl_pdata);
 
 int mdss_dsi_cmds_tx(struct mdss_dsi_ctrl_pdata *ctrl,
-		struct dsi_cmd_desc *cmds, int cnt);
+		struct dsi_cmd_desc *cmds, int cnt, int use_dma_tpg);
 
 int mdss_dsi_cmds_rx(struct mdss_dsi_ctrl_pdata *ctrl,
-			struct dsi_cmd_desc *cmds, int rlen);
+			struct dsi_cmd_desc *cmds, int rlen, int use_dma_tpg);
 
 void mdss_dsi_host_init(struct mdss_panel_data *pdata);
 void mdss_dsi_op_mode_config(int mode,
@@ -620,21 +504,6 @@ int mdss_panel_get_dst_fmt(u32 bpp, char mipi_mode, u32 pixel_packing,
 int mdss_dsi_register_recovery_handler(struct mdss_dsi_ctrl_pdata *ctrl,
 		struct mdss_intf_recovery *recovery);
 void mdss_dsi_unregister_bl_settings(struct mdss_dsi_ctrl_pdata *ctrl_pdata);
-
-#if defined(CONFIG_LGE_MIPI_DSI_LGD_NT35521_E7II_WXGA)
-int e7ii_panel_power(struct mdss_panel_data *pdata, int enable);
-#endif
-#if defined(CONFIG_MFD_DW8768)
-int DSV_DW8768_CTRL(struct mdss_panel_data *pdata, int enable);
-#endif
-
-#if defined(CONFIG_LCD_VDD_EXT_LDO)
-int EXT_VDD_LDO_CTRL(struct mdss_panel_data *pdata, int enable);
-#endif
-
-#if defined(CONFIG_LCD_VDD_VDDIO_EXT_LDO)
-int EXT_VDD_VDDIO_LDO_CTRL(struct mdss_panel_data *pdata, int enable);
-#endif
 
 static inline const char *__mdss_dsi_pm_name(enum dsi_pm_type module)
 {

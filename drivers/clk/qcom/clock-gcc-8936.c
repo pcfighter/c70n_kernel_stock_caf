@@ -1110,9 +1110,6 @@ static struct rcg_clk cci_clk_src = {
 };
 
 static struct clk_freq_tbl ftbl_gcc_camss_gp0_1_clk[] = {
-#if defined(CONFIG_ANDROID_SW_IRRC)
-	F(96000,       gcc_xo,  4,    1,  50),
-#endif
 	F( 100000000,	   gpll0_out_main,   8,	  0,	0),
 	F( 200000000,	   gpll0_out_main,   4,	  0,	0),
 	F_END
@@ -1169,7 +1166,6 @@ static struct rcg_clk jpeg0_clk_src = {
 };
 
 static struct clk_freq_tbl ftbl_gcc_camss_mclk0_1_2_clk[] = {
-	F(  23880000,      gpll0_out_main,   1,    2,   67),
 	F(  24000000,      gpll6_mclk,  1,   1,    45),
 	F(  66670000,	   gpll0_out_main,  12,	  0,	0),
 	F_END
@@ -3490,9 +3486,6 @@ static int msm_gcc_probe(struct platform_device *pdev)
 
 	clk_set_rate(&apss_ahb_clk_src.c, 19200000);
 	clk_prepare_enable(&apss_ahb_clk_src.c);
-
-	if (compat_bin)
-		gcc_bimc_gfx_clk.c.depends = NULL;
 
 	dev_info(&pdev->dev, "Registered GCC clocks\n");
 

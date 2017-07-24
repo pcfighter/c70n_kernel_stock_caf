@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,14 +24,6 @@
 #include "mdss_debug.h"
 #include "mdss_mdp_trace.h"
 
-#if defined(CONFIG_LGD_LD083_VIDEO_WUXGA_PT_PANEL)
-int is_dsv_cont_splash_screening_f;
-#elif (defined(CONFIG_LGD_INCELL_VIDEO_WVGA_PT_PANEL) || defined(CONFIG_LGD_INCELL_VIDEO_FWVGA_PT_PANEL) \
-|| defined(CONFIG_JDI_INCELL_VIDEO_HD_PANEL)) || defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) \
-|| defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL) || defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL)
-extern int has_dsv_f;
-int is_dsv_cont_splash_screening_f;
-#endif
 /* wait for at least 2 vsyncs for lowest refresh rate (24hz) */
 #define VSYNC_TIMEOUT_US 100000
 
@@ -71,6 +63,10 @@ struct mdss_mdp_video_ctx {
 	u32 poll_cnt;
 	struct completion vsync_comp;
 	int wait_pending;
+
+	u32 default_fps;
+	u32 saved_vtotal;
+	u32 saved_vfporch;
 
 	atomic_t vsync_ref;
 	spinlock_t vsync_lock;
@@ -120,7 +116,7 @@ int mdss_mdp_video_addr_setup(struct mdss_data_type *mdata,
 
 	for (i = 0; i < count; i++) {
 		head[i].base = mdata->mdss_io.base + offsets[i];
-		pr_debug("adding Video Intf #%d offset=0x%x virt=%p\n", i,
+		pr_debug("adding Video Intf #%d offset=0x%x virt=%pK\n", i,
 				offsets[i], head[i].base);
 		head[i].ref_cnt = 0;
 		head[i].intf_num = i + MDSS_MDP_INTF0;
@@ -217,7 +213,7 @@ static void mdss_mdp_video_intf_recovery(void *data, int event)
 			mutex_unlock(&ctl->offlock);
 			return;
 		} else {
-			pr_warn("line count is less. line_cnt = %d\n",
+			pr_warn_once("line count is less. line_cnt = %d\n",
 								line_cnt);
 			/* Add delay so that line count is in active region */
 			udelay(delay);
@@ -446,7 +442,7 @@ static int mdss_mdp_video_intfs_stop(struct mdss_mdp_ctl *ctl,
 			pr_err("Intf %d not in use\n", (inum + MDSS_MDP_INTF0));
 			return -ENODEV;
 		}
-		pr_debug("stop ctl=%d video Intf #%d base=%p", ctl->num,
+		pr_debug("stop ctl=%d video Intf #%d base=%pK", ctl->num,
 			ctx->intf_num, ctx->base);
 	} else {
 		pr_err("Invalid intf number: %d\n", (inum + MDSS_MDP_INTF0));
@@ -665,24 +661,24 @@ static void mdss_mdp_video_underrun_intr_done(void *arg)
 static int mdss_mdp_video_vfp_fps_update(struct mdss_mdp_video_ctx *ctx,
 				 struct mdss_panel_data *pdata, int new_fps)
 {
-	int curr_fps;
 	u32 add_v_lines = 0;
 	u32 current_vsync_period_f0, new_vsync_period_f0;
 	u32 vsync_period, hsync_period;
+	int diff;
 
 	vsync_period = mdss_panel_get_vtotal(&pdata->panel_info);
 	hsync_period = mdss_panel_get_htotal(&pdata->panel_info, true);
-	curr_fps = mdss_panel_get_framerate(&pdata->panel_info);
 
-	if (curr_fps > new_fps) {
-		add_v_lines = mult_frac(vsync_period,
-				(curr_fps - new_fps), new_fps);
-		pdata->panel_info.lcdc.v_front_porch += add_v_lines;
-	} else {
-		add_v_lines = mult_frac(vsync_period,
-				(new_fps - curr_fps), new_fps);
-		pdata->panel_info.lcdc.v_front_porch -= add_v_lines;
+	if (!ctx->default_fps) {
+		ctx->default_fps = mdss_panel_get_framerate(&pdata->panel_info);
+		ctx->saved_vtotal = vsync_period;
+		ctx->saved_vfporch = pdata->panel_info.lcdc.v_front_porch;
 	}
+
+	diff = ctx->default_fps - new_fps;
+	add_v_lines = mult_frac(ctx->saved_vtotal, diff, new_fps);
+	pdata->panel_info.lcdc.v_front_porch = ctx->saved_vfporch +
+			add_v_lines;
 
 	vsync_period = mdss_panel_get_vtotal(&pdata->panel_info);
 	current_vsync_period_f0 = mdp_video_read(ctx,
@@ -903,18 +899,6 @@ static int mdss_mdp_video_config_fps(struct mdss_mdp_ctl *ctl,
 
 exit_dfps:
 			spin_unlock_irqrestore(&ctx->dfps_lock, flags);
-#if defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL)
-			/*
-			 * Add another wait here so that time gen flush is
-			 * done solitarily, commit will succeed the dfps
-			 * update in HAL.
-			 */
-			rc = mdss_mdp_video_dfps_wait4vsync(ctl);
-			if (rc < 0) {
-				pr_err("Error during dfps wait4vsync\n");
-				return rc;
-			}
-#endif
 			mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
 		} else {
 			pr_err("intf %d panel, unknown FPS mode\n",
@@ -1036,16 +1020,6 @@ int mdss_mdp_video_reconfigure_splash_done(struct mdss_mdp_ctl *ctl,
 		ctl->panel_data->next->panel_info.cont_splash_enabled = 0;
 
 	if (!handoff) {
-#if defined(CONFIG_LGD_LD083_VIDEO_WUXGA_PT_PANEL)
-			pr_info("%s: %d is_dsv_cont_splash_screening_f = 1 \n", __func__, __LINE__);
-			is_dsv_cont_splash_screening_f = 1;
-#elif (defined(CONFIG_LGD_INCELL_VIDEO_WVGA_PT_PANEL) || defined(CONFIG_LGD_INCELL_VIDEO_FWVGA_PT_PANEL) \
-|| defined(CONFIG_JDI_INCELL_VIDEO_HD_PANEL)) || defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) \
-|| defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL) || defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL)
-		if (has_dsv_f) {
-			is_dsv_cont_splash_screening_f = 1;
-		}
-#endif
 		ret = mdss_mdp_ctl_intf_event(ctl, MDSS_EVENT_CONT_SPLASH_BEGIN,
 					      NULL);
 		if (ret) {
@@ -1074,17 +1048,6 @@ int mdss_mdp_video_reconfigure_splash_done(struct mdss_mdp_ctl *ctl,
 
 		ret = mdss_mdp_ctl_intf_event(ctl,
 			MDSS_EVENT_CONT_SPLASH_FINISH, NULL);
-#if defined(CONFIG_LGD_LD083_VIDEO_WUXGA_PT_PANEL)
-			pr_info("%s: %d send event... MDSS_EVENT_CONT_SPLASH_FINISH \n", __func__, __LINE__);
-			pr_info("%s: %d is_dsv_cont_splash_screening_f = 0 \n", __func__, __LINE__);
-			is_dsv_cont_splash_screening_f = 0;
-#elif (defined(CONFIG_LGD_INCELL_VIDEO_WVGA_PT_PANEL) || defined(CONFIG_LGD_INCELL_VIDEO_FWVGA_PT_PANEL) \
-|| defined(CONFIG_JDI_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL)) \
-|| defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) || defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL)
-		if (has_dsv_f) {
-			is_dsv_cont_splash_screening_f = 0;
-		}
-#endif
 	}
 
 	return ret;
@@ -1195,7 +1158,7 @@ static int mdss_mdp_video_intfs_setup(struct mdss_mdp_ctl *ctl,
 				(inum + MDSS_MDP_INTF0));
 			return -EBUSY;
 		}
-		pr_debug("video Intf #%d base=%p", ctx->intf_num, ctx->base);
+		pr_debug("video Intf #%d base=%pK", ctx->intf_num, ctx->base);
 		ctx->ref_cnt++;
 	} else {
 		pr_err("Invalid intf number: %d\n", (inum + MDSS_MDP_INTF0));
@@ -1259,9 +1222,6 @@ static int mdss_mdp_video_intfs_setup(struct mdss_mdp_ctl *ctl,
 		mdss_mdp_fetch_start_config(ctx, ctl);
 	} else {
 		mdss_mdp_handoff_programmable_fetch(ctl, ctx);
-/*	LGE_CHANGE_S, [Display][yonghwanaaron.kim@lge.com], 2015-03-9, set underflow color on booting time with continuous splash */
-		mdp_video_write(ctx, MDSS_MDP_REG_INTF_UNDERFLOW_COLOR, itp.underflow_clr);
-/*	LGE_CHANGE_E, [Display][yonghwanaaron.kim@lge.com], 2015-03-9, set underflow color on booting time with continuous splash */
 	}
 
 	mdp_video_write(ctx, MDSS_MDP_REG_INTF_PANEL_FORMAT, ctl->dst_format);

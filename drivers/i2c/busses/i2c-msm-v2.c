@@ -91,10 +91,9 @@ static void i2c_msm_dbg_dump_diag(struct i2c_msm_ctrl *ctrl,
 
 	if (xfer->err == I2C_MSM_ERR_TIMEOUT) {
 		/*
-		 * if we are not the bus master or SDA/SCL is
-		 * low then it may be that slave is pulling the
-		 * lines low. Otherwise it is likely a GPIO
-		 * issue
+		 * if we are not the bus master or SDA/SCL is low then it may be
+		 * that slave is pulling the lines low. Otherwise it is likely a
+		 * GPIO issue
 		 */
 		if (!(status & QUP_BUS_MASTER))
 			snprintf(buf, I2C_MSM_REG_2_STR_BUF_SZ,
@@ -1746,14 +1745,6 @@ static irqreturn_t i2c_msm_qup_isr(int irq, void *devid)
 	/* check for FIFO over/under runs error */
 	if (err_flags & QUP_ERR_FLGS_MASK)
 		ctrl->xfer.err = I2C_MSM_ERR_OVR_UNDR_RUN;
-
-	/* Dump the register values before reset the core */
-	if (ctrl->xfer.err && ctrl->dbgfs.dbg_lvl >= MSM_DBG)
-		i2c_msm_dbg_qup_reg_dump(ctrl);
-
-	/* check for FIFO over/under runs error */
-	if (err_flags & QUP_ERR_FLGS_MASK)
-		ctrl->xfer.err = BIT(I2C_MSM_ERR_OVR_UNDR_RUN);
 
 	/* Dump the register values before reset the core */
 	if (ctrl->xfer.err && ctrl->dbgfs.dbg_lvl >= MSM_DBG)

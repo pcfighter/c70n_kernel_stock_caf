@@ -529,17 +529,3 @@ comment "LED Triggers"
 source "drivers/leds/trigger/Kconfig"
 
 endif # NEW_LEDS
-
-config LEDS_PM8916
-	bool "LGE PM8916 Emotional LED"
-	default n
-	help
-	  This option enables support for PM8916 in MSM8916.
-	  PM8916 only supports RED LED with PWM.
-
-config LGE_PM_LED_MSM_GPIO_CONTROL_LED
-	bool "LED support for the MSM GPIO Control LED"
-	help
-	  This option enables support for MSM GPIO Control LED.
-	  Only on/off control.
-	  Say Y to enable support for MSM GPIO Control LED.

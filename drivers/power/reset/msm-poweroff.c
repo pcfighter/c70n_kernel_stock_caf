@@ -32,10 +32,6 @@
 #include <soc/qcom/restart.h>
 #include <soc/qcom/watchdog.h>
 
-#ifdef CONFIG_LGE_HANDLE_PANIC
-#include <soc/qcom/lge/lge_handle_panic.h>
-#endif
-
 #define EMERGENCY_DLOAD_MAGIC1    0x322A4F99
 #define EMERGENCY_DLOAD_MAGIC2    0xC67E4350
 #define EMERGENCY_DLOAD_MAGIC3    0x77777777
@@ -47,8 +43,6 @@
 #define SCM_EDLOAD_MODE			0X01
 #define SCM_DLOAD_CMD			0x10
 
-
-extern int msm8x16_wcd_spmi_write(unsigned short reg, int bytes, void *src);
 
 static int restart_mode;
 void *restart_reason;
@@ -69,11 +63,7 @@ static void *emergency_dload_mode_addr;
 static bool scm_dload_supported;
 
 static int dload_set(const char *val, struct kernel_param *kp);
-#ifdef CONFIG_LGE_DEFAULT_DISABLE_DLOAD_MODE
-static int download_mode = 0;
-#else
 static int download_mode = 1;
-#endif
 module_param_call(download_mode, dload_set, param_get_int,
 			&download_mode, 0644);
 static int panic_prep_restart(struct notifier_block *this,
@@ -133,7 +123,6 @@ static bool get_dload_mode(void)
 	return dload_mode_enabled;
 }
 
-#ifndef CONFIG_LGE_HANDLE_PANIC
 static void enable_emergency_dload_mode(void)
 {
 	int ret;
@@ -158,7 +147,6 @@ static void enable_emergency_dload_mode(void)
 	if (ret)
 		pr_err("Failed to set secure EDLOAD mode: %d\n", ret);
 }
-#endif
 
 static int dload_set(const char *val, struct kernel_param *kp)
 {
@@ -226,12 +214,8 @@ static void halt_spmi_pmic_arbiter(void)
 
 static void msm_restart_prepare(const char *cmd)
 {
-	/* LGE_CHANGE : there's no reason to forcing a hard reset on reboot request */
-#ifdef CONFIG_LGE_HANDLE_PANIC
-	bool is_warm_reset = true;
-#else
 	bool need_warm_reset = false;
-#endif
+
 #ifdef CONFIG_MSM_DLOAD_MODE
 
 	/* Write download mode flags if we're panic'ing
@@ -243,32 +227,6 @@ static void msm_restart_prepare(const char *cmd)
 			(in_panic || restart_mode == RESTART_DLOAD));
 #endif
 
-
-#ifdef CONFIG_LGE_USE_DEFAULT_HARD_RESET
-	/* default & test purpose reboot should be hard reset since QTI doesn't gurantee repeated warm boot test */
-	if (cmd) {
-		if ((cmd[0] == '\0')
-			|| !strncmp(cmd, "Restarted by power key", 22)
-			|| !strncmp(cmd, "bootchart", 9)
-			|| !strncmp(cmd, "cuz resetTool", 13)
-			|| !strncmp(cmd, "PMCycleTest", 11)
-			|| !strncmp(cmd, "eMMCTest", 8)
-		   )
-			is_warm_reset = false;
-	} else
-		is_warm_reset = false;
-#endif
-
-	/* Hard reset the PMIC unless memory contents must be maintained. */
-#ifdef CONFIG_LGE_HANDLE_PANIC
-	pr_info("[DEBUG] msm_restart_prepare is_warm_reset=%d, get_dload_mode()=%d, in_panic=%d, restart_mode=%d\n", is_warm_reset, get_dload_mode(), in_panic, restart_mode);	
-	if (is_warm_reset || get_dload_mode() || in_panic || (restart_mode == RESTART_DLOAD)) {
-#else
-	if (get_dload_mode() || (cmd != NULL && cmd[0] != '\0'))
-
-	need_warm_reset = (get_dload_mode() ||
-				(cmd != NULL && cmd[0] != '\0'));
-
 	if (qpnp_pon_check_hard_reset_stored()) {
 		/* Set warm reset as true when device is in dload mode
 		 *  or device doesn't boot up into recovery, bootloader or rtc.
@@ -279,12 +237,13 @@ static void msm_restart_prepare(const char *cmd)
 			strcmp(cmd, "bootloader") &&
 			strcmp(cmd, "rtc")))
 			need_warm_reset = true;
+	} else {
+		need_warm_reset = (get_dload_mode() ||
+				(cmd != NULL && cmd[0] != '\0'));
 	}
 
 	/* Hard reset the PMIC unless memory contents must be maintained. */
 	if (need_warm_reset) {
-
-#endif
 		qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
 	} else {
 		qpnp_pon_system_pwr_off(PON_POWER_OFF_HARD_RESET);
@@ -299,24 +258,22 @@ static void msm_restart_prepare(const char *cmd)
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_RECOVERY);
 			__raw_writel(0x77665502, restart_reason);
-		} else if (!strncmp(cmd, "fota", 4)) {
-			__raw_writel(0x77665566, restart_reason);
 		} else if (!strcmp(cmd, "rtc")) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_RTC);
 			__raw_writel(0x77665503, restart_reason);
-#ifdef CONFIG_LGE_LCD_OFF_DIMMING
-		} else if (!strncmp(cmd, "FOTA LCD off", 12)) {
-			__raw_writel(0x77665560, restart_reason);
-		} else if (!strncmp(cmd, "FOTA OUT LCD off", 16)) {
-			__raw_writel(0x77665561, restart_reason);
-		 } else if (!strncmp(cmd, "LCD off", 7)) {
-                        __raw_writel(0x77665562, restart_reason);
-#endif
-        }else if (!strncmp(cmd, "dm-verity device corrupted", 26 )) {
-            __raw_writel(0x77665508, restart_reason);
-        } else if (!strncmp(cmd, "wallpaper_fail", 14)) {
-            __raw_writel(0x77665507, restart_reason);
+                } else if (!strcmp(cmd, "dm-verity device corrupted")) {
+                        qpnp_pon_set_restart_reason(
+                                PON_RESTART_REASON_DMVERITY_CORRUPTED);
+                        __raw_writel(0x77665508, restart_reason);
+                } else if (!strcmp(cmd, "dm-verity enforcing")) {
+                        qpnp_pon_set_restart_reason(
+                                PON_RESTART_REASON_DMVERITY_ENFORCE);
+                        __raw_writel(0x77665509, restart_reason);
+                } else if (!strcmp(cmd, "keys clear")) {
+                        qpnp_pon_set_restart_reason(
+                                PON_RESTART_REASON_KEYS_CLEAR);
+                        __raw_writel(0x7766550a, restart_reason);
 		} else if (!strncmp(cmd, "oem-", 4)) {
 			unsigned long code;
 			int ret;
@@ -324,24 +281,12 @@ static void msm_restart_prepare(const char *cmd)
 			if (!ret)
 				__raw_writel(0x6f656d00 | (code & 0xff),
 					     restart_reason);
-#ifndef CONFIG_LGE_HANDLE_PANIC
 		} else if (!strncmp(cmd, "edl", 3)) {
 			enable_emergency_dload_mode();
-#endif
 		} else {
 			__raw_writel(0x77665501, restart_reason);
 		}
 	}
-
-#ifdef CONFIG_LGE_HANDLE_PANIC
-	if (restart_mode == RESTART_DLOAD) {
-		set_dload_mode(0);
-		lge_set_restart_reason(LAF_DLOAD_MODE);
-	}
-
-	if (in_panic)
-		lge_set_panic_reason();
-#endif
 
 	flush_cache_all();
 
@@ -412,7 +357,7 @@ static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 	halt_spmi_pmic_arbiter();
 	deassert_ps_hold();
 
-    mdelay(10000);
+	mdelay(10000);
 }
 
 static void do_msm_poweroff(void)
@@ -539,9 +484,4 @@ static int __init msm_restart_init(void)
 {
 	return platform_driver_register(&msm_restart_driver);
 }
-#ifdef CONFIG_LGE_USE_6GBIT_CS_N_SDRAM
-core_initcall(msm_restart_init);
-#else
 device_initcall(msm_restart_init);
-#endif
-

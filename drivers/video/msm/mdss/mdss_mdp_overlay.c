@@ -35,13 +35,6 @@
 #include "mdss_fb.h"
 #include "mdss_mdp.h"
 #include "mdss_mdp_rotator.h"
-#ifdef CONFIG_LGE_DISPLAY_VSYNC_SKIP
-#include "lge/common/vsync_skip.h"
-#endif
-
-#if defined(CONFIG_LGE_DYNAMIC_FPS)
-#include <linux/input/unified_driver_2/lgtp_common_notify.h>
-#endif
 
 #define VSYNC_PERIOD 16
 #define BORDERFILL_NDX	0x0BF000BF
@@ -933,6 +926,11 @@ int mdss_mdp_overlay_pipe_setup(struct msm_fb_data_type *mfd,
 	}
 
 	/*
+	 * Populate Color Space.
+	 */
+	if (pipe->src_fmt->is_yuv && (pipe->type == MDSS_MDP_PIPE_TYPE_VIG))
+		pipe->csc_coeff_set = req->color_space;
+	/*
 	 * When scaling is enabled src crop and image
 	 * width and height is modified by user
 	 */
@@ -1447,9 +1445,6 @@ int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 	LIST_HEAD(destroy_pipes);
 
 	ATRACE_BEGIN(__func__);
-#if defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL)
-	mutex_lock(&mdp5_data->ovdfps_lock);
-#endif
 	if (ctl->shared_lock) {
 		mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_BEGIN);
 		mutex_lock(ctl->shared_lock);
@@ -1601,9 +1596,6 @@ unlock_exit:
 	mutex_unlock(&mdp5_data->ov_lock);
 	if (ctl->shared_lock)
 		mutex_unlock(ctl->shared_lock);
-#if defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL)
-	mutex_unlock(&mdp5_data->ovdfps_lock);
-#endif
 	ATRACE_END(__func__);
 
 	return ret;
@@ -2003,13 +1995,11 @@ static void mdss_mdp_overlay_pan_display(struct msm_fb_data_type *mfd)
 		goto pan_display_error;
 	}
 
-#if !defined(CONFIG_LGE_MIPI_DSI_LGD_NT35521_E7II_WXGA) && !defined(CONFIG_LGE_MIPI_DSI_BYD_ILI9806E_WVGA) && !defined(CONFIG_JDI_INCELL_VIDEO_HD_PANEL)
 	ret = mdss_iommu_ctrl(1);
 	if (IS_ERR_VALUE(ret)) {
 		pr_err("IOMMU attach failed\n");
 		goto pan_display_error;
 	}
-#endif
 
 	buf = &pipe->back_buf;
 	if (mdata->mdss_util->iommu_attached()) {
@@ -2049,16 +2039,12 @@ static void mdss_mdp_overlay_pan_display(struct msm_fb_data_type *mfd)
 	    (fbi->var.activate & FB_ACTIVATE_FORCE))
 		mfd->mdp.kickoff_fnc(mfd, NULL);
 
-#if !defined(CONFIG_LGE_MIPI_DSI_LGD_NT35521_E7II_WXGA) && !defined(CONFIG_LGE_MIPI_DSI_BYD_ILI9806E_WVGA) && !defined(CONFIG_JDI_INCELL_VIDEO_HD_PANEL)
 	mdss_iommu_ctrl(0);
-#endif
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
 	return;
 
 pan_display_error:
-#if !defined(CONFIG_LGE_MIPI_DSI_LGD_NT35521_E7II_WXGA) && !defined(CONFIG_LGE_MIPI_DSI_BYD_ILI9806E_WVGA) && !defined(CONFIG_JDI_INCELL_VIDEO_HD_PANEL)
 	mdss_iommu_ctrl(0);
-#endif
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
 	mutex_unlock(&mdp5_data->ov_lock);
 }
@@ -2116,35 +2102,10 @@ static void mdss_mdp_overlay_handle_vsync(struct mdss_mdp_ctl *ctl,
 		return;
 	}
 
-#ifdef CONFIG_LGE_DISPLAY_VSYNC_SKIP
-	if (oem_vsync_skip.enable_skip_vsync) {
-		oem_vsync_skip.bucket += oem_vsync_skip.weight;
-		if (oem_vsync_skip.skip_first == false) {
-			oem_vsync_skip.skip_first = true;
-			pr_debug("vsync on fb%d play_cnt=%d\n", mfd->index, ctl->play_cnt);
-			mdp5_data->vsync_time = t;
-			sysfs_notify_dirent(mdp5_data->vsync_event_sd);
-		} else {
-			if (oem_vsync_skip.skip_value <= oem_vsync_skip.bucket) {
-				pr_debug("vsync on fb%d play_cnt=%d\n", mfd->index, ctl->play_cnt);
-				mdp5_data->vsync_time = t;
-				sysfs_notify_dirent(mdp5_data->vsync_event_sd);
-				oem_vsync_skip.bucket -= oem_vsync_skip.skip_value;
-			} else {
-				oem_vsync_skip.skip_count++;
-			}
-		}
-	} else {
-		pr_debug("vsync on fb%d play_cnt=%d\n", mfd->index, ctl->play_cnt);
-		mdp5_data->vsync_time = t;
-		sysfs_notify_dirent(mdp5_data->vsync_event_sd);
-	}
-#else /* qct original */
 	pr_debug("vsync on fb%d play_cnt=%d\n", mfd->index, ctl->play_cnt);
 
 	mdp5_data->vsync_time = t;
 	sysfs_notify_dirent(mdp5_data->vsync_event_sd);
-#endif
 }
 
 int mdss_mdp_overlay_vsync_ctrl(struct msm_fb_data_type *mfd, int en)
@@ -2174,67 +2135,6 @@ int mdss_mdp_overlay_vsync_ctrl(struct msm_fb_data_type *mfd, int en)
 
 	return rc;
 }
-
-#if defined(CONFIG_LGE_DYNAMIC_FPS)
-static ssize_t min_fps_sysfs_rda_dfps(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	ssize_t ret;
-	struct mdss_panel_data *pdata;
-	struct fb_info *fbi = dev_get_drvdata(dev);
-	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)fbi->par;
-
-	pdata = dev_get_platdata(&mfd->pdev->dev);
-	if (!pdata) {
-		pr_err("no panel connected for fb%d\n", mfd->index);
-		return -ENODEV;
-	}
-
-	pr_info("dynamic min_fps : %d\n", pdata->panel_info.min_fps);
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", pdata->panel_info.min_fps);
-	return ret;
-};
-
-static ssize_t min_fps_sysfs_wta_dfps(struct device *dev,
-	struct device_attribute *attr, const char *buf, size_t count)
-{
-	int min_dfps, rc = 0;
-	struct mdss_panel_data *pdata;
-	struct fb_info *fbi = dev_get_drvdata(dev);
-	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)fbi->par;
-
-	rc = kstrtoint(buf, 10, &min_dfps);
-	if (rc) {
-		pr_err("%s: kstrtoint failed. rc=%d\n", __func__, rc);
-		return rc;
-	}
-
-	pdata = dev_get_platdata(&mfd->pdev->dev);
-	if (!pdata) {
-		pr_err("no panel connected for fb%d\n", mfd->index);
-		return -ENODEV;
-	}
-	pr_info("New min_dfps : %d\n", min_dfps);
-	if (min_dfps < 30 || min_dfps > 60) {
-		pr_err("Not supported fps\n");
-		return -ENODEV;
-	}
-	pdata->panel_info.min_fps = min_dfps;
-	return count;
-
-};
-
-static DEVICE_ATTR(min_fps, S_IRUGO | S_IWUSR, min_fps_sysfs_rda_dfps,
-	min_fps_sysfs_wta_dfps);
-
-static struct attribute *lge_dynamic_fps_fs_attrs[] = {
-	&dev_attr_min_fps.attr,
-	NULL,
-};
-static struct attribute_group lge_dynamic_fps_fs_attrs_group = {
-	.attrs = lge_dynamic_fps_fs_attrs,
-};
-#endif
 
 static ssize_t dynamic_fps_sysfs_rda_dfps(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -2287,29 +2187,19 @@ static ssize_t dynamic_fps_sysfs_wta_dfps(struct device *dev,
 		pr_err("no panel connected for fb%d\n", mfd->index);
 		return -ENODEV;
 	}
-	pr_info("New FPS : %d, Current FPS : %d\n", dfps, pdata->panel_info.mipi.frame_rate);
+
 	if (dfps == pdata->panel_info.mipi.frame_rate) {
 		pr_debug("%s: FPS is already %d\n",
 			__func__, dfps);
 		return count;
 	}
-#if defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL)
-	mutex_lock(&mdp5_data->ovdfps_lock);
-#endif
 
 	mutex_lock(&mdp5_data->dfps_lock);
 	if (dfps < pdata->panel_info.min_fps) {
-#if defined(CONFIG_LGE_DYNAMIC_FPS)
-		pr_err("Unsupported FPS. min_fps = %d\n",
-				pdata->panel_info.min_fps);
-		dfps = pdata->panel_info.min_fps;
-		rc = mdss_mdp_ctl_update_fps(mdp5_data->ctl, dfps);
-#else
 		pr_err("Unsupported FPS. min_fps = %d\n",
 				pdata->panel_info.min_fps);
 		mutex_unlock(&mdp5_data->dfps_lock);
 		return -EINVAL;
-#endif
 	} else if (dfps > pdata->panel_info.max_fps) {
 		pr_warn("Unsupported FPS. Configuring to max_fps = %d\n",
 				pdata->panel_info.max_fps);
@@ -2324,20 +2214,10 @@ static ssize_t dynamic_fps_sysfs_wta_dfps(struct device *dev,
 		pr_err("Failed to configure '%d' FPS. rc = %d\n",
 							dfps, rc);
 		mutex_unlock(&mdp5_data->dfps_lock);
-#if defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL)
-		mutex_unlock(&mdp5_data->ovdfps_lock);
-#endif
 		return rc;
 	}
 	pdata->panel_info.new_fps = dfps;
 	mutex_unlock(&mdp5_data->dfps_lock);
-#if defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL)
-	mutex_unlock(&mdp5_data->ovdfps_lock);
-#endif
-#if defined(CONFIG_LGE_DYNAMIC_FPS)
-	if(dfps!=pdata->panel_info.max_fps)
-		touch_notifier_call_chain(LCD_EVENT_FPS_CHANGED, NULL);
-#endif
 	return count;
 } /* dynamic_fps_sysfs_wta_dfps */
 
@@ -3343,16 +3223,20 @@ static int __mdss_overlay_src_split_sort(struct msm_fb_data_type *mfd,
 		__overlay_swap_func);
 
 	for (i = 0; i < num_ovs; i++) {
+		if (ovs[i].z_order >= MDSS_MDP_MAX_STAGE) {
+			pr_err("invalid stage:%u\n", ovs[i].z_order);
+			return -EINVAL;
+		}
 		if (ovs[i].dst_rect.x < left_lm_w) {
 			if (left_lm_zo_cnt[ovs[i].z_order] == 2) {
-				pr_err("more than 2 ov @ stage%d on left lm\n",
+				pr_err("more than 2 ov @ stage%u on left lm\n",
 					ovs[i].z_order);
 				return -EINVAL;
 			}
 			left_lm_zo_cnt[ovs[i].z_order]++;
 		} else {
 			if (right_lm_zo_cnt[ovs[i].z_order] == 2) {
-				pr_err("more than 2 ov @ stage%d on right lm\n",
+				pr_err("more than 2 ov @ stage%u on right lm\n",
 					ovs[i].z_order);
 				return -EINVAL;
 			}
@@ -3855,12 +3739,6 @@ static int mdss_mdp_overlay_off(struct msm_fb_data_type *mfd)
 	 * power collapse
 	 */
 	pm_runtime_get_sync(&mfd->pdev->dev);
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_AOD_SUPPORT)
-	if (mfd->panel_info->lge_pan_info.lge_panel_send_off_cmd == false){
-		pr_info("panel off cmd not send. keeping overlay on\n");
-		goto ctl_stop;
-	}
-#endif
 
 	if (mdss_fb_is_power_on_lp(mfd)) {
 		pr_debug("panel not turned off. keeping overlay on\n");
@@ -4267,9 +4145,6 @@ int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd)
 	mutex_init(&mdp5_data->list_lock);
 	mutex_init(&mdp5_data->ov_lock);
 	mutex_init(&mdp5_data->dfps_lock);
-#if defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL)
-	mutex_init(&mdp5_data->ovdfps_lock);
-#endif
 	mdp5_data->hw_refresh = true;
 	mdp5_data->overlay_play_enable = true;
 	mdp5_data->cursor_ndx[CURSOR_PIPE_LEFT] = MSMFB_NEW_REQUEST;
@@ -4330,15 +4205,6 @@ int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd)
 			goto init_fail;
 		}
 	}
-
-#if defined(CONFIG_LGE_DYNAMIC_FPS)
-	rc = sysfs_create_group(&dev->kobj,
-			&lge_dynamic_fps_fs_attrs_group);
-	if (rc) {
-		pr_err("Error dfps sysfs creation ret=%d\n", rc);
-		goto init_fail;
-	}
-#endif
 
 	if (mfd->panel_info->mipi.dynamic_switch_enabled ||
 			mfd->panel_info->type == MIPI_CMD_PANEL) {

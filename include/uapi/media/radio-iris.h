@@ -187,7 +187,7 @@ struct radio_hci_dev {
 };
 
 int radio_hci_register_dev(struct radio_hci_dev *hdev);
-int radio_hci_unregister_dev(struct radio_hci_dev *hdev);
+int radio_hci_unregister_dev(void);
 int radio_hci_recv_frame(struct sk_buff *skb);
 int radio_hci_send_cmd(struct radio_hci_dev *hdev, __u16 opcode, __u32 plen,
 	void *param);
@@ -765,13 +765,13 @@ enum iris_xfr_t {
 
 #undef FMDBG
 #ifdef FM_DEBUG
-#define FMDBG(fmt, args...) pr_info("iris_radio: %s() " fmt, __func__, ##args)
+#define FMDBG(fmt, args...) pr_info("iris_radio: " fmt, ##args)
 #else
 #define FMDBG(fmt, args...)
 #endif
 
 #undef FMDERR
-#define FMDERR(fmt, args...) pr_err("iris_radio: %s() " fmt, __func__, ##args)
+#define FMDERR(fmt, args...) pr_err("iris_radio: " fmt, ##args)
 
 /* Search options */
 enum search_t {

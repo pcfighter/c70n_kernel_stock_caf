@@ -208,9 +208,9 @@ static int camera_v4l2_reqbufs(struct file *filep, void *fh,
 	session = msm_session_find(session_id);
 	if (WARN_ON(!session))
 		return -EIO;
-	mutex_lock(&session->lock);
+	mutex_lock(&session->lock_q);
 	ret = vb2_reqbufs(&sp->vb2_q, req);
-	mutex_unlock(&session->lock);
+	mutex_unlock(&session->lock_q);
 	return ret;
 }
 
@@ -231,9 +231,9 @@ static int camera_v4l2_qbuf(struct file *filep, void *fh,
 	session = msm_session_find(session_id);
 	if (WARN_ON(!session))
 		return -EIO;
-	mutex_lock(&session->lock);
+	mutex_lock(&session->lock_q);
 	ret = vb2_qbuf(&sp->vb2_q, pb);
-	mutex_unlock(&session->lock);
+	mutex_unlock(&session->lock_q);
 	return ret;
 }
 
@@ -248,9 +248,9 @@ static int camera_v4l2_dqbuf(struct file *filep, void *fh,
 	session = msm_session_find(session_id);
 	if (WARN_ON(!session))
 		return -EIO;
-	mutex_lock(&session->lock);
+	mutex_lock(&session->lock_q);
 	ret = vb2_dqbuf(&sp->vb2_q, pb, filep->f_flags & O_NONBLOCK);
-	mutex_unlock(&session->lock);
+	mutex_unlock(&session->lock_q);
 	return ret;
 }
 
@@ -559,10 +559,8 @@ static int camera_v4l2_open(struct file *filep)
 	if (!atomic_read(&pvdev->opened)) {
 		pm_stay_awake(&pvdev->vdev->dev);
 
-		#ifdef CONFIG_LGE_UNDERRUN
 		/* Disable power collapse latency */
 		msm_pm_qos_update_request(CAMERA_DISABLE_PC_LATENCY);
-		#endif
 
 		/* create a new session when first opened */
 		rc = msm_create_session(pvdev->vdev->num, pvdev->vdev);
@@ -597,10 +595,8 @@ static int camera_v4l2_open(struct file *filep)
 					__func__, __LINE__, rc);
 			goto post_fail;
 		}
-		#ifdef CONFIG_LGE_UNDERRUN
 		/* Enable power collapse latency */
 		msm_pm_qos_update_request(CAMERA_ENABLE_PC_LATENCY);
-		#endif
 	} else {
 		rc = msm_create_command_ack_q(pvdev->vdev->num,
 			find_first_zero_bit((const unsigned long *)&opn_idx,
@@ -677,11 +673,6 @@ static int camera_v4l2_close(struct file *filep)
 		/* This should take care of both normal close
 		 * and application crashes */
 		msm_destroy_session(pvdev->vdev->num);
-
-		#ifdef CONFIG_LGE_UNDERRUN
-		/* Enable power collapse latency */
-		msm_pm_qos_update_request(CAMERA_ENABLE_PC_LATENCY);
-		#endif
 
 		pm_relax(&pvdev->vdev->dev);
 	} else {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -82,6 +82,13 @@ enum msm_vfe_frame_skip_pattern {
 	EVERY_6FRAME,
 	EVERY_7FRAME,
 	EVERY_8FRAME,
+	EVERY_9FRAME,
+	EVERY_10FRAME,
+	EVERY_11FRAME,
+	EVERY_12FRAME,
+	EVERY_13FRAME,
+	EVERY_14FRAME,
+	EVERY_15FRAME,
 	EVERY_16FRAME,
 	EVERY_32FRAME,
 	SKIP_ALL,
@@ -436,8 +443,7 @@ enum msm_isp_event_idx {
 #define ISP_EVENT_START_ACK       (ISP_EVENT_BASE + ISP_START_ACK)
 #define ISP_EVENT_STOP_ACK        (ISP_EVENT_BASE + ISP_STOP_ACK)
 #define ISP_EVENT_IRQ_VIOLATION   (ISP_EVENT_BASE + ISP_IRQ_VIOLATION)
-//#define ISP_EVENT_WM_BUS_OVERFLOW (ISP_EVENT_BASE + ISP_WM_BUS_OVERFLOW)	//qct original
-#define ISP_EVENT_WM_BUS_OVERFLOW (ISP_EVENT_BASE + ((ISP_WM_BUS_OVERFLOW+1) << ISP_EVENT_OFFSET)) //LGE_CHANGE, modify bus overflow recovery, 2015-01-28, kwangsik83.kim@lge.com
+#define ISP_EVENT_WM_BUS_OVERFLOW (ISP_EVENT_BASE + ISP_WM_BUS_OVERFLOW)
 #define ISP_EVENT_STATS_OVERFLOW  (ISP_EVENT_BASE + ISP_STATS_OVERFLOW)
 #define ISP_EVENT_CAMIF_ERROR     (ISP_EVENT_BASE + ISP_CAMIF_ERROR)
 #define ISP_EVENT_SOF             (ISP_CAMIF_EVENT_BASE)

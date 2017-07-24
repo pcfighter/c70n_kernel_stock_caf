@@ -16,10 +16,6 @@
 #include <linux/delay.h>
 #include <linux/mdss_io_util.h>
 
-#ifdef CONFIG_LGE_DISPLAY_POWER_SEQUENCE
-#define PANEL_SEQUENCE(name, state) pr_info("[PanelSequence][%s] %d\n", name, state);
-#endif
-
 #define MAX_I2C_CMDS  16
 void dss_reg_w(struct dss_io_data *io, u32 offset, u32 value, u32 debug)
 {
@@ -216,11 +212,6 @@ int msm_dss_enable_vreg(struct dss_vreg *in_vreg, int num_vreg, int enable)
 {
 	int i = 0, rc = 0;
 	bool need_sleep;
-
-#ifdef CONFIG_LGE_DISPLAY_POWER_SEQUENCE
-	extern int panel_power_flag;
-#endif
-
 	if (enable) {
 		for (i = 0; i < num_vreg; i++) {
 			rc = PTR_RET(in_vreg[i].vreg);
@@ -242,10 +233,6 @@ int msm_dss_enable_vreg(struct dss_vreg *in_vreg, int num_vreg, int enable)
 				goto vreg_set_opt_mode_fail;
 			}
 			rc = regulator_enable(in_vreg[i].vreg);
-#ifdef CONFIG_LGE_DISPLAY_POWER_SEQUENCE
-			if(panel_power_flag == 1)
-				PANEL_SEQUENCE(in_vreg[i].vreg_name, 1);
-#endif
 			if (in_vreg[i].post_on_sleep && need_sleep)
 				msleep(in_vreg[i].post_on_sleep);
 			if (rc < 0) {
@@ -263,10 +250,6 @@ int msm_dss_enable_vreg(struct dss_vreg *in_vreg, int num_vreg, int enable)
 				regulator_set_optimum_mode(in_vreg[i].vreg,
 					in_vreg[i].disable_load);
 				regulator_disable(in_vreg[i].vreg);
-#ifdef CONFIG_LGE_DISPLAY_POWER_SEQUENCE
-				if(panel_power_flag == 1)
-					PANEL_SEQUENCE(in_vreg[i].vreg_name, 0);
-#endif
 				if (in_vreg[i].post_off_sleep)
 					msleep(in_vreg[i].post_off_sleep);
 			}

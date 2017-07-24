@@ -53,8 +53,8 @@
 #define VFE_CLK_INFO_MAX 16
 #define STATS_COMP_BIT_MASK 0xFF0000
 
-#define MSM_ISP_MIN_AB 300000000
-#define MSM_ISP_MIN_IB 4000000000U //450000000
+#define MSM_ISP_MIN_AB 11000000
+#define MSM_ISP_MIN_IB 11000000
 
 struct vfe_device;
 struct msm_vfe_axi_stream;
@@ -592,7 +592,6 @@ struct vfe_device {
 	uint32_t vfe_ub_policy;
 	uint32_t isp_sof_debug;
 	uint8_t reset_pending;
-	uint8_t mk_overflow; //LGE_CHANGE, make overflow intentionally for debbuging, 2015-01-15, kwangsik83.kim@lge.com*/
 	uint32_t bus_util_factor;
 };
 

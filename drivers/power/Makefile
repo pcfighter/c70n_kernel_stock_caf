@@ -2,9 +2,7 @@ ccflags-$(CONFIG_POWER_SUPPLY_DEBUG) := -DDEBUG
 
 power_supply-y				:= power_supply_core.o
 power_supply-$(CONFIG_SYSFS)		+= power_supply_sysfs.o
-ifndef CONFIG_LGE_PM
 power_supply-$(CONFIG_LEDS_TRIGGERS)	+= power_supply_leds.o
-endif
 
 obj-$(CONFIG_POWER_SUPPLY)	+= power_supply.o
 obj-$(CONFIG_GENERIC_ADC_BATTERY)	+= generic-adc-battery.o
@@ -16,7 +14,6 @@ obj-$(CONFIG_WM831X_BACKUP)	+= wm831x_backup.o
 obj-$(CONFIG_WM831X_POWER)	+= wm831x_power.o
 obj-$(CONFIG_WM8350_POWER)	+= wm8350_power.o
 obj-$(CONFIG_TEST_POWER)	+= test_power.o
-obj-$(CONFIG_CHG_DETECTOR_MAX14656)   += max14656_charger_detector.o
 
 obj-$(CONFIG_BATTERY_88PM860X)	+= 88pm860x_battery.o
 obj-$(CONFIG_BATTERY_DS2760)	+= ds2760_battery.o
@@ -35,9 +32,6 @@ obj-$(CONFIG_BATTERY_DA9030)	+= da9030_battery.o
 obj-$(CONFIG_BATTERY_DA9052)	+= da9052-battery.o
 obj-$(CONFIG_BATTERY_MAX17040)	+= max17040_battery.o
 obj-$(CONFIG_BATTERY_MAX17042)	+= max17042_battery.o
-obj-$(CONFIG_LGE_PM_BATTERY_MAX17048)	+= max17048_battery.o
-obj-$(CONFIG_LGE_PM_BATTERY_MAX17050)	+= max17050_battery.o
-obj-$(CONFIG_LGE_PM_BATTERY_MAX17050_2100MA)	+= max17050_battery_2100mA.o
 obj-$(CONFIG_BATTERY_Z2)	+= z2_battery.o
 obj-$(CONFIG_BATTERY_S3C_ADC)	+= s3c_adc_battery.o
 obj-$(CONFIG_CHARGER_88PM860X)	+= 88pm860x_charger.o
@@ -75,10 +69,5 @@ obj-$(CONFIG_CHARGER_TPS65090)	+= tps65090-charger.o
 obj-$(CONFIG_BATTERY_BCL)	+= battery_current_limit.o
 obj-$(CONFIG_MSM_BCL_CTL)	+= msm_bcl.o
 obj-$(CONFIG_MSM_BCL_PERIPHERAL_CTL) += bcl_peripheral.o
-obj-$(CONFIG_LGE_PM)		+= lge_smpl_count.o
 obj-$(CONFIG_POWER_RESET)	+= reset/
-obj-$(CONFIG_LGE_PM_CHARGING_BQ24296_SUB_CHARGER)   += bq24296_sub_charger.o
-obj-$(CONFIG_LGE_PM_CHARGING_BQ24296_CHARGER)   += bq24296_charger.o
-obj-$(CONFIG_LGE_PM_CHARGING_BQ24262_CHARGER)   += bq24262_charger.o
-obj-$(CONFIG_LGE_PM_BATTERY_RT9428_FUELGAUGE)   += rt9428_battery.o
 obj-y				+= qcom/

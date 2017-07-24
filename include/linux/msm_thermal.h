@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2015,2017 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -71,9 +71,6 @@ struct msm_thermal_data {
 	int32_t vdd_mx_temp_degC;
 	int32_t vdd_mx_temp_hyst_degC;
 	int32_t therm_reset_temp_degC;
-#ifdef CONFIG_LGE_PM_THERMAL_LITTLE_FREQ
-	uint32_t little_freq_limit;
-#endif
 };
 
 enum sensor_id_type {
@@ -90,6 +87,7 @@ struct therm_threshold {
 	int32_t                     trip_triggered;
 	void (*notify)(struct therm_threshold *);
 	struct threshold_info       *parent;
+	int32_t                          cur_state;
 };
 
 struct threshold_info {

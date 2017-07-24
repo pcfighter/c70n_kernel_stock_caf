@@ -41,14 +41,6 @@
 			label = "peripheral_mem";
 		};
 
-        venus_qseecom_mem: venus_region@0 {
-            linux,reserve-contiguous-region;
-            linux,memory-limit = <0x90000000>;
-            reg = <0 0 0 0x0500000>;
-            linux,reserve-region;
-            label = "venus_qseecom_mem";
-        };
-
 		mba_mem: mba_region@0 {
 			linux,reserve-contiguous-region;
 			reg = <0 0 0 0x0200000>;
@@ -56,16 +48,16 @@
 		};
 
 		secure_mem: secure_region@0 {
-			status = "ok";
 			linux,reserve-contiguous-region;
 			reg = <0 0 0 0x6D00000>;
 			label = "secure_mem";
 		};
 
-		qseecom_mem: qseecom_region@0 {
+		venus_qseecom_mem: venus_qseecom_region@0 {
 			linux,reserve-contiguous-region;
-			reg = <0 0 0 0xD00000>;
-                       label = "qseecom_mem";
+			linux,memory-limit = <0x90000000>;
+			reg = <0 0 0 0x1200000>;
+			label = "venus_qseecom_mem";
 		};
 
 		audio_mem: audio_region@0 {
@@ -74,13 +66,11 @@
 			label = "audio_mem";
 		};
 
-		cont_splash_mem: splash_region@83200000 {
+		cont_splash_mem: splash_region@83000000 {
 			linux,reserve-contiguous-region;
 			linux,reserve-region;
-			linux,remove-completely;
-			reg = <0x0 0x83200000 0x0 0x1200000>;
+			reg = <0x0 0x83000000 0x0 0x1400000>;
 			label = "cont_splash_mem";
 		};
-
 	};
 };

@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -329,52 +329,7 @@ static int kgsl_page_alloc_vmfault(struct kgsl_memdesc *memdesc,
 		return VM_FAULT_SIGBUS;
 
 	pgoff = offset >> PAGE_SHIFT;
-#ifdef CONFIG_LGE_KGSL_OFFSET_SEARCH
-	if (memdesc->offseted_sg == 0x0FF5E7ED) {
-#define SCALED_FACTOR   (_get_page_size / PAGE_SIZE)
 
-		struct page *page;
-		int sg_offset, sg_offset_4k;
-		int _pgoff;
-		int _get_page_size=SZ_64K;//get_page_size(SZ_4M, ilog2(SZ_4M));
-/*
-	1)	16n + m = memdesc->size >> PAGE_SHIFT
-	2)	n + m = memdesc->s_len
-	----
-	from 2)	m = memdesc->sg_len - n
-	from 1)	16n + (memdesc->sg_len - n) = memdesc->size >> PAGE_SHIFT
-
-	result	n = ((memdesc->size >> PAGE_SHIFT) - memdesc->sg_len ) / 15
-*/
-		sg_offset_4k = ((memdesc->size >> PAGE_SHIFT) - memdesc->sglen)
-			/ (SCALED_FACTOR - 1);
-
-		_pgoff = pgoff - sg_offset_4k * SCALED_FACTOR;
-
-		if (_pgoff < 0) { // 64K allocated offset
-			sg_offset = pgoff / SCALED_FACTOR;
-			pgoff -= sg_offset * SCALED_FACTOR;
-			sg_offset_4k=0;
-		} else {
-			s = &s[sg_offset_4k];
-			sg_offset = _pgoff;
-			pgoff = 0;
-		}
-
-		if (sg_offset + sg_offset_4k > memdesc->sglen) {
-			goto orginal_code;
-		}
-
-		page = sg_page(&s[sg_offset]);
-		page = nth_page(page, pgoff);
-
-		get_page(page);
-		vmf->page = page;
-
-		return 0;
-	}
-orginal_code:
-#endif
 	/*
 	 * The sglist might be comprised of mixed blocks of memory depending
 	 * on how many 64K pages were allocated.  This means we have to do math
@@ -582,9 +537,16 @@ int kgsl_cache_range_op(struct kgsl_memdesc *memdesc, size_t offset,
 	void *addr = (memdesc->hostptr) ?
 		memdesc->hostptr : (void *) memdesc->useraddr;
 
-	/* Make sure that size is non-zero */
-	if (!size)
+	if (size == 0 || size > UINT_MAX)
 		return -EINVAL;
+
+	/* Make sure that the offset + size does not overflow */
+	if ((offset + size < offset) || (offset + size < size))
+		return -ERANGE;
+
+	/* Make sure the offset + size do not overflow the address */
+	if ((addr + offset + size) < addr)
+		return -ERANGE;
 
 	/* Check that offset+length does not exceed memdesc->size */
 	if ((offset + size) > memdesc->size)
@@ -644,6 +606,10 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 	unsigned int align;
 	int step = ((VMALLOC_END - VMALLOC_START)/8) >> PAGE_SHIFT;
 
+	size = PAGE_ALIGN(size);
+	if (size == 0 || size > UINT_MAX)
+		return -EINVAL;
+
 	align = (memdesc->flags & KGSL_MEMALIGN_MASK) >> KGSL_MEMALIGN_SHIFT;
 
 	page_size = get_page_size(size, align);
@@ -666,6 +632,9 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 	memdesc->pagetable = pagetable;
 	memdesc->ops = &kgsl_page_alloc_ops;
 
+	/* Check for integer overflow */
+	if (sglen_alloc && (sizeof(struct scatterlist) > INT_MAX / sglen_alloc))
+		return -EINVAL;
 	memdesc->sg = kgsl_malloc(sglen_alloc * sizeof(struct scatterlist));
 
 	if (memdesc->sg == NULL) {
@@ -691,10 +660,6 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 	sg_init_table(memdesc->sg, sglen_alloc);
 
 	len = size;
-
-#ifdef CONFIG_LGE_KGSL_OFFSET_SEARCH
-	memdesc->offseted_sg = 0x0FF5E7ED;
-#endif
 
 	while (len > 0) {
 		struct page *page;
@@ -751,7 +716,9 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 
 	memdesc->sglen = sglen;
 	memdesc->size = size;
-	sg_mark_end(&memdesc->sg[sglen - 1]);
+
+	if (sglen > 0)
+		sg_mark_end(&memdesc->sg[sglen - 1]);
 
 	/*
 	 * All memory that goes to the user has to be zeroed out before it gets

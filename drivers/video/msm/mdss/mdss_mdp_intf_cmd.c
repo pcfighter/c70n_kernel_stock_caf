@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -581,7 +581,7 @@ static int mdss_mdp_cmd_wait4pingpong(struct mdss_mdp_ctl *ctl, void *arg)
 			ctx->rdptr_enabled, ctl->roi_bkup.w,
 			ctl->roi_bkup.h);
 
-	pr_debug("%s: intf_num=%d ctx=%p koff_cnt=%d\n", __func__,
+	pr_debug("%s: intf_num=%d ctx=%pK koff_cnt=%d\n", __func__,
 			ctl->intf_num, ctx, atomic_read(&ctx->koff_cnt));
 
 	rc = wait_event_timeout(ctx->pp_waitq,
@@ -893,13 +893,6 @@ int mdss_mdp_cmd_intfs_stop(struct mdss_mdp_ctl *ctl, int session,
 	ctx->intf_stopped = 1;
 	spin_lock_irqsave(&ctx->clk_lock, flags);
 	if (ctx->rdptr_enabled) {
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_AOD_SUPPORT)
-	if ((ctl->panel_data->panel_info.lge_pan_info.lge_panel_send_off_cmd == false)
-		&& (atomic_read(&ctx->koff_cnt) == 0)){
-			pr_info("%s: no kickoff cnt, no need to wait \n", __func__);
-			mdss_mdp_irq_disable(MDSS_MDP_IRQ_PING_PONG_RD_PTR,ctx->pp_num);
-			ctx->rdptr_enabled = 0;
-	}else {
 		INIT_COMPLETION(ctx->stop_comp);
 		need_wait = 1;
 		/*
@@ -907,16 +900,6 @@ int mdss_mdp_cmd_intfs_stop(struct mdss_mdp_ctl *ctl, int session,
 		 * next vsync if there has no kickoff pending
 		 */
 		ctx->rdptr_enabled = 1;
-	}
-#else
-		INIT_COMPLETION(ctx->stop_comp);
-		need_wait = 1;
-		/*
-		 * clk off at next vsync after pp_done  OR
-		 * next vsync if there has no kickoff pending
-		 */
-		ctx->rdptr_enabled = 1;
-#endif
 	}
 	spin_unlock_irqrestore(&ctx->clk_lock, flags);
 
@@ -1181,7 +1164,7 @@ static int mdss_mdp_cmd_intfs_setup(struct mdss_mdp_ctl *ctl,
 
 	ctx->intf_stopped = 0;
 
-	pr_debug("%s: ctx=%p num=%d mixer=%d\n", __func__,
+	pr_debug("%s: ctx=%pK num=%d mixer=%d\n", __func__,
 				ctx, ctx->pp_num, mixer->num);
 	MDSS_XLOG(ctl->num, atomic_read(&ctx->koff_cnt), ctx->clk_enabled,
 					ctx->rdptr_enabled);

@@ -41,20 +41,11 @@
 #include <sound/q6audio-v2.h>
 #include <sound/audio_cal_utils.h>
 
-#ifdef CONFIG_SND_LGE_EFFECT
-#include "lge_dsp_sound_effect.h"
-#endif
-#ifdef CONFIG_SND_LGE_NORMALIZER
-#include "lge_dsp_sound_normalizer.h"
-#endif
-#ifdef CONFIG_SND_LGE_MABL
-#include "lge_dsp_sound_mabl.h"
-#endif
-
 #define TRUE        0x01
 #define FALSE       0x00
 
 #define CMD_GET_HDR_SZ 16
+#define	U32_MAX	((u32)~0U)
 
 enum {
 	ASM_TOPOLOGY_CAL = 0,
@@ -320,12 +311,12 @@ static void config_debug_fs_write(struct audio_buffer *ab)
 }
 static void config_debug_fs_init(void)
 {
-	out_buffer = kmalloc(OUT_BUFFER_SIZE, GFP_KERNEL);
+	out_buffer = kzalloc(OUT_BUFFER_SIZE, GFP_KERNEL);
 	if (out_buffer == NULL) {
 		pr_err("%s: kmalloc() for out_buffer failed\n", __func__);
 		goto outbuf_fail;
 	}
-	in_buffer = kmalloc(IN_BUFFER_SIZE, GFP_KERNEL);
+	in_buffer = kzalloc(IN_BUFFER_SIZE, GFP_KERNEL);
 	if (in_buffer == NULL) {
 		pr_err("%s: kmalloc() for in_buffer failed\n", __func__);
 		goto inbuf_fail;
@@ -433,14 +424,6 @@ static void q6asm_session_free(struct audio_client *ac)
 	return;
 }
 
-static uint32_t q6asm_get_next_buf(uint32_t curr_buf, uint32_t max_buf_cnt)
-{
-	pr_debug("%s: curr_buf = %d, max_buf_cnt = %d\n",
-		 __func__, curr_buf, max_buf_cnt);
-	curr_buf += 1;
-	return (curr_buf >= max_buf_cnt) ? 0 : curr_buf;
-}
-
 static int q6asm_map_cal_memory(struct cal_block_data *cal_block)
 {
 	int			result = 0;
@@ -489,7 +472,7 @@ static int q6asm_map_cal_memory(struct cal_block_data *cal_block)
 		pr_err("%s: mmap did not work! size = %zd result %d\n",
 			__func__,
 			cal_block->map_data.map_size, result);
-		pr_debug("%s: mmap did not work! addr = 0x%pa, size = %zd\n",
+		pr_debug("%s: mmap did not work! addr = 0x%pK, size = %zd\n",
 			__func__,
 			&cal_block->cal_data.paddr,
 			cal_block->map_data.map_size);
@@ -622,7 +605,7 @@ int send_asm_custom_topology(struct audio_client *ac)
 	asm_top.mem_map_handle = cal_block->map_data.q6map_handle;
 	asm_top.payload_size = cal_block->cal_data.size;
 
-	 pr_debug("%s: Sending ASM_CMD_ADD_TOPOLOGIES payload = %pa, size = %d, map handle = 0x%x\n",
+	 pr_debug("%s: Sending ASM_CMD_ADD_TOPOLOGIES payload = %pK, size = %d, map handle = 0x%x\n",
 		__func__, &cal_block->cal_data.paddr,
 		asm_top.payload_size, asm_top.mem_map_handle);
 
@@ -630,7 +613,7 @@ int send_asm_custom_topology(struct audio_client *ac)
 	if (result < 0) {
 		pr_err("%s: Set topologies failed result %d\n",
 			__func__, result);
-		pr_debug("%s: Set topologies failed payload = 0x%pa\n",
+		pr_debug("%s: Set topologies failed payload = 0x%pK\n",
 			__func__, &cal_block->cal_data.paddr);
 		goto unmap;
 
@@ -640,7 +623,7 @@ int send_asm_custom_topology(struct audio_client *ac)
 			(atomic_read(&ac->mem_state) <= 0), 5*HZ);
 	if (!result) {
 		pr_err("%s: Set topologies failed timeout\n", __func__);
-		pr_debug("%s: Set topologies failed after timedout payload = 0x%pa\n",
+		pr_debug("%s: Set topologies failed after timedout payload = 0x%pK\n",
 			__func__, &cal_block->cal_data.paddr);
 		result = -ETIMEDOUT;
 		goto unmap;
@@ -716,7 +699,7 @@ int q6asm_map_rtac_block(struct rtac_cal_block_data *cal_block)
 		pr_err("%s: mmap did not work! size = %d result %d\n",
 			__func__,
 			cal_block->map_data.map_size, result);
-		pr_debug("%s: mmap did not work! addr = 0x%pa, size = %d\n",
+		pr_debug("%s: mmap did not work! addr = 0x%pK, size = %d\n",
 			__func__,
 			&cal_block->cal_data.paddr,
 			cal_block->map_data.map_size);
@@ -853,7 +836,7 @@ int q6asm_audio_client_buf_free_contiguous(unsigned int dir,
 	}
 
 	if (port->buf[0].data) {
-		pr_debug("%s: data[%p]phys[%pa][%p] , client[%p] handle[%p]\n",
+		pr_debug("%s: data[%pK]phys[%pK][%pK] , client[%pK] handle[%pK]\n",
 			__func__,
 			port->buf[0].data,
 			&port->buf[0].phys,
@@ -884,7 +867,7 @@ void q6asm_audio_client_free(struct audio_client *ac)
 	int loopcnt;
 	struct audio_port_data *port;
 	if (!ac) {
-		pr_err("%s: ac %p\n", __func__, ac);
+		pr_err("%s: ac %pK\n", __func__, ac);
 		return;
 	}
 	if (!ac->session) {
@@ -1092,15 +1075,16 @@ err:
 int q6asm_audio_client_buf_alloc(unsigned int dir,
 			struct audio_client *ac,
 			unsigned int bufsz,
-			unsigned int bufcnt)
+			uint32_t bufcnt)
 {
 	int cnt = 0;
 	int rc = 0;
 	struct audio_buffer *buf;
 	size_t len;
 
-	if (!(ac) || ((dir != IN) && (dir != OUT))) {
-		pr_err("%s: ac %p dir %d\n", __func__, ac, dir);
+	if (!(ac) || !(bufsz) || ((dir != IN) && (dir != OUT))) {
+		pr_err("%s: ac %pK bufsz %d dir %d\n", __func__, ac, bufsz,
+			dir);
 		return -EINVAL;
 	}
 
@@ -1119,7 +1103,7 @@ int q6asm_audio_client_buf_alloc(unsigned int dir,
 			return 0;
 		}
 		mutex_lock(&ac->cmd_lock);
-		if (bufcnt > (LONG_MAX/sizeof(struct audio_buffer))) {
+		if (bufcnt > (U32_MAX/sizeof(struct audio_buffer))) {
 			pr_err("%s: Buffer size overflows", __func__);
 			mutex_unlock(&ac->cmd_lock);
 			goto fail;
@@ -1153,7 +1137,7 @@ int q6asm_audio_client_buf_alloc(unsigned int dir,
 					buf[cnt].used = 1;
 					buf[cnt].size = bufsz;
 					buf[cnt].actual_size = bufsz;
-					pr_debug("%s: data[%p]phys[%pa][%p]\n",
+					pr_debug("%s: data[%pK]phys[%pK][%pK]\n",
 						__func__,
 					   buf[cnt].data,
 					   &buf[cnt].phys,
@@ -1190,7 +1174,7 @@ int q6asm_audio_client_buf_alloc_contiguous(unsigned int dir,
 	int bytes_to_alloc;
 
 	if (!(ac) || ((dir != IN) && (dir != OUT))) {
-		pr_err("%s: ac %p dir %d\n", __func__, ac, dir);
+		pr_err("%s: ac %pK dir %d\n", __func__, ac, dir);
 		return -EINVAL;
 	}
 
@@ -1220,6 +1204,12 @@ int q6asm_audio_client_buf_alloc_contiguous(unsigned int dir,
 
 	ac->port[dir].buf = buf;
 
+	/* check for integer overflow */
+	if ((bufcnt > 0) && ((INT_MAX / bufcnt) < bufsz)) {
+		pr_err("%s: integer overflow\n", __func__);
+		mutex_unlock(&ac->cmd_lock);
+		goto fail;
+	}
 	bytes_to_alloc = bufsz * bufcnt;
 
 	/* The size to allocate should be multiple of 4K bytes */
@@ -1253,7 +1243,7 @@ int q6asm_audio_client_buf_alloc_contiguous(unsigned int dir,
 			buf[cnt].used = dir ^ 1;
 			buf[cnt].size = bufsz;
 			buf[cnt].actual_size = bufsz;
-			pr_debug("%s: data[%p]phys[%pa][%p]\n",
+			pr_debug("%s: data[%pK]phys[%pK][%pK]\n",
 				__func__,
 				buf[cnt].data,
 				&buf[cnt].phys,
@@ -1296,7 +1286,7 @@ static int32_t q6asm_srvc_callback(struct apr_client_data *data, void *priv)
 	payload = data->payload;
 
 	if (data->opcode == RESET_EVENTS) {
-		pr_debug("%s: Reset event is received: %d %d apr[%p]\n",
+		pr_debug("%s: Reset event is received: %d %d apr[%pK]\n",
 				__func__,
 				data->reset_event,
 				data->reset_proc,
@@ -1462,7 +1452,7 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 		return -EINVAL;
 	}
 	if (!q6asm_is_valid_audio_client(ac)) {
-		pr_err("%s: audio client pointer is invalid, ac = %p\n",
+		pr_err("%s: audio client pointer is invalid, ac = %pK\n",
 				__func__, ac);
 		return -EINVAL;
 	}
@@ -1488,7 +1478,7 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 		atomic_set(&ac->reset, 1);
 		if (ac->apr == NULL)
 			ac->apr = ac->apr2;
-		pr_debug("%s: Reset event is received: %d %d apr[%p]\n",
+		pr_debug("%s: Reset event is received: %d %d apr[%pK]\n",
 			__func__,
 			data->reset_event, data->reset_proc, ac->apr);
 		if (ac->cb)
@@ -1631,7 +1621,7 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 			payload[0] ||
 			upper_32_bits(port->buf[data->token].phys) !=
 			payload[1]) {
-				pr_debug("%s: Expected addr %pa\n",
+				pr_debug("%s: Expected addr %pK\n",
 				__func__, &port->buf[data->token].phys);
 				pr_err("%s: rxedl[0x%x] rxedu [0x%x]\n",
 					__func__, payload[0], payload[1]);
@@ -1706,7 +1696,7 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 			payload[READDONE_IDX_BUFADD_LSW] ||
 			upper_32_bits(port->buf[token].phys) !=
 			payload[READDONE_IDX_BUFADD_MSW]) {
-				dev_vdbg(ac->dev, "%s: Expected addr %pa\n",
+				dev_vdbg(ac->dev, "%s: Expected addr %pK\n",
 					__func__, &port->buf[token].phys);
 				pr_err("%s: rxedl[0x%x] rxedu[0x%x]\n",
 					__func__,
@@ -1777,7 +1767,7 @@ void *q6asm_is_cpu_buf_avail(int dir, struct audio_client *ac, uint32_t *size,
 	struct audio_port_data *port;
 
 	if (!ac || ((dir != IN) && (dir != OUT))) {
-		pr_err("%s: ac %p dir %d\n", __func__, ac, dir);
+		pr_err("%s: ac %pK dir %d\n", __func__, ac, dir);
 		return NULL;
 	}
 
@@ -1804,7 +1794,7 @@ void *q6asm_is_cpu_buf_avail(int dir, struct audio_client *ac, uint32_t *size,
 		*size = port->buf[idx].actual_size;
 		*index = port->cpu_buf;
 		data = port->buf[idx].data;
-		dev_vdbg(ac->dev, "%s: session[%d]index[%d] data[%p]size[%d]\n",
+		dev_vdbg(ac->dev, "%s: session[%d]index[%d] data[%pK]size[%d]\n",
 						__func__,
 						ac->session,
 						port->cpu_buf,
@@ -1813,7 +1803,7 @@ void *q6asm_is_cpu_buf_avail(int dir, struct audio_client *ac, uint32_t *size,
 		user accesses this function,increase cpu
 		buf(to avoid another api)*/
 		port->buf[idx].used = dir;
-		port->cpu_buf = q6asm_get_next_buf(port->cpu_buf, port->max_buf_cnt);
+		port->cpu_buf = ((port->cpu_buf + 1) & (port->max_buf_cnt - 1));
 		mutex_unlock(&port->lock);
 		return data;
 	}
@@ -1828,7 +1818,7 @@ void *q6asm_is_cpu_buf_avail_nolock(int dir, struct audio_client *ac,
 	struct audio_port_data *port;
 
 	if (!ac || ((dir != IN) && (dir != OUT))) {
-		pr_err("%s: ac %p dir %d\n", __func__, ac, dir);
+		pr_err("%s: ac %pK dir %d\n", __func__, ac, dir);
 		return NULL;
 	}
 
@@ -1855,7 +1845,7 @@ void *q6asm_is_cpu_buf_avail_nolock(int dir, struct audio_client *ac,
 	*size = port->buf[idx].actual_size;
 	*index = port->cpu_buf;
 	data = port->buf[idx].data;
-	dev_vdbg(ac->dev, "%s: session[%d]index[%d] data[%p]size[%d]\n",
+	dev_vdbg(ac->dev, "%s: session[%d]index[%d] data[%pK]size[%d]\n",
 		__func__, ac->session, port->cpu_buf,
 		data, *size);
 	/*
@@ -1864,7 +1854,7 @@ void *q6asm_is_cpu_buf_avail_nolock(int dir, struct audio_client *ac,
 	 * buf(to avoid another api)
 	 */
 	port->buf[idx].used = dir;
-	port->cpu_buf = q6asm_get_next_buf(port->cpu_buf, port->max_buf_cnt);
+	port->cpu_buf = ((port->cpu_buf + 1) & (port->max_buf_cnt - 1));
 	return data;
 }
 
@@ -1875,7 +1865,7 @@ int q6asm_is_dsp_buf_avail(int dir, struct audio_client *ac)
 	uint32_t idx;
 
 	if (!ac || (dir != OUT)) {
-		pr_err("%s: ac %p dir %d\n", __func__, ac, dir);
+		pr_err("%s: ac %pK dir %d\n", __func__, ac, dir);
 		return ret;
 	}
 
@@ -2067,12 +2057,6 @@ static int __q6asm_open_read(struct audio_client *ac,
 			ASM_SHIFT_STREAM_PERF_MODE_FLAG_IN_OPEN_READ;
 	}
 
-#if defined(CONFIG_SND_LGE_EFFECT) || defined(CONFIG_SND_LGE_NORMALIZER) || defined(CONFIG_SND_LGE_MABL)
-	if ((open.preprocopo_id == ASM_STREAM_POSTPROC_TOPO_ID_DEFAULT_LGE) ||
-	    (open.preprocopo_id == ASM_STREAM_POSTPROC_TOPO_ID_OFFLOAD_LGE))
-		open.preprocopo_id = ASM_STREAM_POSTPROCOPO_ID_DEFAULT;
-#endif
-
 	switch (format) {
 	case FORMAT_LINEAR_PCM:
 		open.mode_flags |= 0x00;
@@ -2147,13 +2131,13 @@ int q6asm_open_write_compressed(struct audio_client *ac, uint32_t format,
 	struct asm_stream_cmd_open_write_compressed open;
 
 	if (ac == NULL) {
-		pr_err("%s: ac[%p] NULL\n",  __func__, ac);
+		pr_err("%s: ac[%pK] NULL\n",  __func__, ac);
 		rc = -EINVAL;
 		goto fail_cmd;
 	}
 
 	if (ac->apr == NULL) {
-		pr_err("%s: APR handle[%p] NULL\n", __func__,  ac->apr);
+		pr_err("%s: APR handle[%pK] NULL\n", __func__,  ac->apr);
 		rc = -EINVAL;
 		goto fail_cmd;
 	}
@@ -2258,12 +2242,7 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 	open.bits_per_sample = bits_per_sample;
 
 	open.postprocopo_id = q6asm_get_asm_topology();
-#if defined(CONFIG_SND_LGE_EFFECT) || defined(CONFIG_SND_LGE_NORMALIZER) \
-            || defined(CONFIG_SND_LGE_MABL)
-	if (open.postprocopo_id == ASM_STREAM_POSTPROCOPO_ID_DEFAULT)
-			open.postprocopo_id = ASM_STREAM_POSTPROC_TOPO_ID_DEFAULT_LGE;
-	pr_debug("%s: postprocopo_id[0x%x]", __func__, open.postprocopo_id);
-#endif
+
 	/* For DTS EAGLE only, force 24 bit */
 	if (open.postprocopo_id == ASM_STREAM_POSTPROC_TOPO_ID_DTS_HPX)
 		open.bits_per_sample = 24;
@@ -2395,11 +2374,6 @@ static int __q6asm_open_read_write(struct audio_client *ac, uint32_t rd_format,
 	open.postprocopo_id = overwrite_topology ?
 			      topology : open.postprocopo_id;
 	ac->topology = open.postprocopo_id;
-#if defined(CONFIG_SND_LGE_EFFECT) || defined(CONFIG_SND_LGE_NORMALIZER) || defined(CONFIG_SND_LGE_MABL)
-	if ((open.postprocopo_id == ASM_STREAM_POSTPROC_TOPO_ID_DEFAULT_LGE) ||
-	    (open.postprocopo_id == ASM_STREAM_POSTPROC_TOPO_ID_OFFLOAD_LGE))
-		open.postprocopo_id = ASM_STREAM_POSTPROCOPO_ID_DEFAULT;
-#endif
 	switch (wr_format) {
 	case FORMAT_LINEAR_PCM:
 	case FORMAT_MULTI_CHANNEL_LINEAR_PCM:
@@ -3675,10 +3649,11 @@ int q6asm_stream_media_format_block_flac(struct audio_client *ac,
 	struct asm_flac_fmt_blk_v2 fmt;
 	int rc = 0;
 
-	pr_debug("%s :session[%d]rate[%d]ch[%d]size[%d]\n", __func__,
-		ac->session, cfg->sample_rate, cfg->ch_cfg, cfg->sample_size);
+	pr_debug("%s :session[%d] rate[%d] ch[%d] size[%d] stream_id[%d]\n",
+		__func__, ac->session, cfg->sample_rate, cfg->ch_cfg,
+		cfg->sample_size, stream_id);
 
-	q6asm_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE);
+	q6asm_stream_add_hdr(ac, &fmt.hdr, sizeof(fmt), TRUE, stream_id);
 	atomic_set(&ac->cmd_state, 1);
 
 	fmt.hdr.opcode = ASM_DATA_CMD_MEDIA_FMT_UPDATE_V2;
@@ -3958,7 +3933,7 @@ int q6asm_memory_map(struct audio_client *ac, phys_addr_t buf_add, int dir,
 
 	ac->port[dir].tmp_hdl = 0;
 	port = &ac->port[dir];
-	pr_debug("%s: buf_add 0x%pa, bufsz: %d\n", __func__,
+	pr_debug("%s: buf_add 0x%pK, bufsz: %d\n", __func__,
 		&buf_add, bufsz);
 	mregions->shm_addr_lsw = lower_32_bits(buf_add);
 	mregions->shm_addr_msw = upper_32_bits(buf_add);
@@ -4098,7 +4073,7 @@ static int q6asm_memory_map_regions(struct audio_client *ac, int dir,
 	struct asm_buffer_node *buffer_node = NULL;
 	int	rc = 0;
 	int    i = 0;
-	int	cmd_size = 0;
+	uint32_t cmd_size = 0;
 	uint32_t bufcnt_t;
 	uint32_t bufsz_t;
 
@@ -4120,9 +4095,24 @@ static int q6asm_memory_map_regions(struct audio_client *ac, int dir,
 		bufsz_t = PAGE_ALIGN(bufsz_t);
 	}
 
+	if (bufcnt_t > (UINT_MAX
+			- sizeof(struct avs_cmd_shared_mem_map_regions))
+			/ sizeof(struct avs_shared_map_region_payload)) {
+		pr_err("%s: Unsigned Integer Overflow. bufcnt_t = %u\n",
+				__func__, bufcnt_t);
+		return -EINVAL;
+	}
+
 	cmd_size = sizeof(struct avs_cmd_shared_mem_map_regions)
 			+ (sizeof(struct avs_shared_map_region_payload)
 							* bufcnt_t);
+
+
+	if (bufcnt > (UINT_MAX / sizeof(struct asm_buffer_node))) {
+		pr_err("%s: Unsigned Integer Overflow. bufcnt = %u\n",
+				__func__, bufcnt);
+		return -EINVAL;
+	}
 
 	buffer_node = kzalloc(sizeof(struct asm_buffer_node) * bufcnt,
 				GFP_KERNEL);
@@ -4144,7 +4134,7 @@ static int q6asm_memory_map_regions(struct audio_client *ac, int dir,
 	q6asm_add_mmaphdr(ac, &mmap_regions->hdr, cmd_size, TRUE,
 					((ac->session << 8) | dir));
 	atomic_set(&ac->mem_state, 1);
-	pr_debug("%s: mmap_region=0x%p token=0x%x\n", __func__,
+	pr_debug("%s: mmap_region=0x%pK token=0x%x\n", __func__,
 		mmap_regions, ((ac->session << 8) | dir));
 
 	mmap_regions->hdr.opcode = ASM_CMD_SHARED_MEM_MAP_REGIONS;
@@ -4200,7 +4190,7 @@ static int q6asm_memory_map_regions(struct audio_client *ac, int dir,
 		buffer_node[i].mmap_hdl = ac->port[dir].tmp_hdl;
 		list_add_tail(&buffer_node[i].list,
 			&ac->port[dir].mem_map_handle);
-		pr_debug("%s: i=%d, bufadd[i] = 0x%pa, maphdl[i] = 0x%x\n",
+		pr_debug("%s: i=%d, bufadd[i] = 0x%pK, maphdl[i] = 0x%x\n",
 			__func__, i, &buffer_node[i].buf_phys_addr,
 			buffer_node[i].mmap_hdl);
 	}
@@ -4432,7 +4422,7 @@ int q6asm_dts_eagle_set(struct audio_client *ac, int param_id, uint32_t size,
 	}
 
 	if (!ac || ac->apr == NULL || (size == 0) || !data) {
-		pr_err("DTS_EAGLE_ASM - %s: APR handle NULL, invalid size %u or pointer %p.\n",
+		pr_err("DTS_EAGLE_ASM - %s: APR handle NULL, invalid size %u or pointer %pK.\n",
 			__func__, size, data);
 		return -EINVAL;
 	}
@@ -4483,7 +4473,7 @@ int q6asm_dts_eagle_get(struct audio_client *ac, int param_id, uint32_t size,
 	uint32_t sz;
 
 	if (!ac || ac->apr == NULL || (size == 0) || !data) {
-		pr_err("DTS_EAGLE_ASM - %s: APR handle NULL, invalid size %u or pointer %p.\n",
+		pr_err("DTS_EAGLE_ASM - %s: APR handle NULL, invalid size %u or pointer %pK.\n",
 			__func__, size, data);
 		return -EINVAL;
 	}
@@ -4908,7 +4898,7 @@ static int __q6asm_read(struct audio_client *ac, bool is_custom_len_reqd,
 		}
 		ab = &port->buf[dsp_buf];
 
-		dev_vdbg(ac->dev, "%s: session[%d]dsp-buf[%d][%p]cpu_buf[%d][%pa]\n",
+		dev_vdbg(ac->dev, "%s: session[%d]dsp-buf[%d][%pK]cpu_buf[%d][%pK]\n",
 				__func__,
 				ac->session,
 				dsp_buf,
@@ -4931,9 +4921,9 @@ static int __q6asm_read(struct audio_client *ac, bool is_custom_len_reqd,
 		read.buf_size = is_custom_len_reqd ? len : ab->size;
 		read.seq_id = port->dsp_buf;
 		read.hdr.token = port->dsp_buf;
-		port->dsp_buf = q6asm_get_next_buf(port->dsp_buf, port->max_buf_cnt);
+		port->dsp_buf = (port->dsp_buf + 1) & (port->max_buf_cnt - 1);
 		mutex_unlock(&port->lock);
-		dev_vdbg(ac->dev, "%s: buf add[%pa] token[%d] uid[%d]\n",
+		dev_vdbg(ac->dev, "%s: buf add[%pK] token[%d] uid[%d]\n",
 				__func__, &ab->phys, read.hdr.token,
 				read.seq_id);
 		rc = apr_send_pkt(ac->apr, (uint32_t *) &read);
@@ -4947,1094 +4937,6 @@ static int __q6asm_read(struct audio_client *ac, bool is_custom_len_reqd,
 fail_cmd:
 	return -EINVAL;
 }
-
-#ifdef CONFIG_SND_LGE_EFFECT
-int q6asm_set_lgesoundeffect_enable(struct audio_client *ac, int enable)
-{
-	struct asm_lgesoundeffect_param_enable lgesoundeffect_enable;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: enable:%d\n", __func__, enable);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundeffect_param_enable);
-	q6asm_add_hdr_async(ac, &lgesoundeffect_enable.hdr, sz, TRUE);
-	lgesoundeffect_enable.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundeffect_enable.param.data_payload_addr_lsw = 0;
-	lgesoundeffect_enable.param.data_payload_addr_msw = 0;
-
-	lgesoundeffect_enable.param.mem_map_handle = 0;
-	lgesoundeffect_enable.param.data_payload_size = sizeof(lgesoundeffect_enable) -
-				sizeof(lgesoundeffect_enable.hdr) - sizeof(lgesoundeffect_enable.param);
-	lgesoundeffect_enable.data.module_id = APPI_LGE_SOUNDEFFECT_MODULE_ID;
-	lgesoundeffect_enable.data.param_id = APPI_LGE_SOUNDEFFECT_ENABLES;
-	lgesoundeffect_enable.data.param_size = lgesoundeffect_enable.param.data_payload_size - sizeof(lgesoundeffect_enable.data);
-	lgesoundeffect_enable.data.reserved = 0;
-	lgesoundeffect_enable.enable_flag = enable;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundeffect_enable);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-				lgesoundeffect_enable.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-				lgesoundeffect_enable.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundeffect_modetype(struct audio_client *ac, int modetype)
-{
-	struct asm_lgesoundeffect_param_modetype lgesoundeffect_modetype;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: modetype:%d\n", __func__, modetype);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundeffect_param_modetype);
-	q6asm_add_hdr_async(ac, &lgesoundeffect_modetype.hdr, sz, TRUE);
-	lgesoundeffect_modetype.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundeffect_modetype.param.data_payload_addr_lsw = 0;
-	lgesoundeffect_modetype.param.data_payload_addr_msw = 0;
-
-	lgesoundeffect_modetype.param.mem_map_handle = 0;
-	lgesoundeffect_modetype.param.data_payload_size = sizeof(lgesoundeffect_modetype) -
-			sizeof(lgesoundeffect_modetype.hdr) - sizeof(lgesoundeffect_modetype.param);
-	lgesoundeffect_modetype.data.module_id = APPI_LGE_SOUNDEFFECT_MODULE_ID;
-	lgesoundeffect_modetype.data.param_id = APPI_LGE_SOUNDEFFECT_EFFECTMODE_PARAMS;
-	lgesoundeffect_modetype.data.param_size = lgesoundeffect_modetype.param.data_payload_size - sizeof(lgesoundeffect_modetype.data);
-	lgesoundeffect_modetype.data.reserved = 0;
-	lgesoundeffect_modetype.ModeType = modetype;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundeffect_modetype);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundeffect_modetype.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundeffect_modetype.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundeffect_outputdevicetype(struct audio_client *ac, int outputdevicetype)
-{
-	struct asm_lgesoundeffect_param_outputdevicetype lgesoundeffect_outputdevicetype;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: outputdevicetype:%d\n", __func__, outputdevicetype);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundeffect_param_outputdevicetype);
-	q6asm_add_hdr_async(ac, &lgesoundeffect_outputdevicetype.hdr, sz, TRUE);
-	lgesoundeffect_outputdevicetype.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundeffect_outputdevicetype.param.data_payload_addr_lsw = 0;
-	lgesoundeffect_outputdevicetype.param.data_payload_addr_msw = 0;
-
-	lgesoundeffect_outputdevicetype.param.mem_map_handle = 0;
-	lgesoundeffect_outputdevicetype.param.data_payload_size = sizeof(lgesoundeffect_outputdevicetype) -
-				sizeof(lgesoundeffect_outputdevicetype.hdr) - sizeof(lgesoundeffect_outputdevicetype.param);
-	lgesoundeffect_outputdevicetype.data.module_id = APPI_LGE_SOUNDEFFECT_MODULE_ID;
-	lgesoundeffect_outputdevicetype.data.param_id = APPI_LGE_SOUNDEFFECT_OUTPUTDEVICE_PARAMS;
-	lgesoundeffect_outputdevicetype.data.param_size =
-		lgesoundeffect_outputdevicetype.param.data_payload_size - sizeof(lgesoundeffect_outputdevicetype.data);
-	lgesoundeffect_outputdevicetype.data.reserved = 0;
-	lgesoundeffect_outputdevicetype.OutputDeviceType = outputdevicetype;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundeffect_outputdevicetype);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundeffect_outputdevicetype.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundeffect_outputdevicetype.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundeffect_mediatype(struct audio_client *ac, int mediatype)
-{
-	struct asm_lgesoundeffect_param_mediatype lgesoundeffect_mediatype;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: mediatype:%d\n", __func__, mediatype);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundeffect_param_mediatype);
-	q6asm_add_hdr_async(ac, &lgesoundeffect_mediatype.hdr, sz, TRUE);
-	lgesoundeffect_mediatype.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundeffect_mediatype.param.data_payload_addr_lsw = 0;
-	lgesoundeffect_mediatype.param.data_payload_addr_msw = 0;
-
-	lgesoundeffect_mediatype.param.mem_map_handle = 0;
-	lgesoundeffect_mediatype.param.data_payload_size = sizeof(lgesoundeffect_mediatype) -
-				sizeof(lgesoundeffect_mediatype.hdr) - sizeof(lgesoundeffect_mediatype.param);
-	lgesoundeffect_mediatype.data.module_id = APPI_LGE_SOUNDEFFECT_MODULE_ID;
-	lgesoundeffect_mediatype.data.param_id = APPI_LGE_SOUNDEFFECT_MEDITYPE_PARAMS;
-	lgesoundeffect_mediatype.data.param_size = lgesoundeffect_mediatype.param.data_payload_size - sizeof(lgesoundeffect_mediatype.data);
-	lgesoundeffect_mediatype.data.reserved = 0;
-	lgesoundeffect_mediatype.MediaType = mediatype;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundeffect_mediatype);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundeffect_mediatype.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundeffect_mediatype.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundeffect_geq(struct audio_client *ac, int geq_band, int geq_gain)
-{
-	struct asm_lgesoundeffect_param_geq lgesoundeffect_geq;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: geq_band:%d, geq_gain:%d\n", __func__, geq_band, geq_gain);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundeffect_param_geq);
-	q6asm_add_hdr_async(ac, &lgesoundeffect_geq.hdr, sz, TRUE);
-	lgesoundeffect_geq.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundeffect_geq.param.data_payload_addr_lsw = 0;
-	lgesoundeffect_geq.param.data_payload_addr_msw = 0;
-
-	lgesoundeffect_geq.param.mem_map_handle = 0;
-	lgesoundeffect_geq.param.data_payload_size = sizeof(lgesoundeffect_geq) -
-				sizeof(lgesoundeffect_geq.hdr) - sizeof(lgesoundeffect_geq.param);
-	lgesoundeffect_geq.data.module_id = APPI_LGE_SOUNDEFFECT_MODULE_ID;
-	lgesoundeffect_geq.data.param_id = APPI_LGE_SOUNDEFFECT_GEQ_PARAMS;
-	lgesoundeffect_geq.data.param_size = lgesoundeffect_geq.param.data_payload_size - sizeof(lgesoundeffect_geq.data);
-	lgesoundeffect_geq.data.reserved = 0;
-	lgesoundeffect_geq.BandNum = geq_band;
-	lgesoundeffect_geq.BandGain = geq_gain;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundeffect_geq);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundeffect_geq.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 0.5*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundeffect_geq.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundeffect_allparam(struct audio_client *ac, struct lgesoundeffect_allparam_st *param)
-{
-	struct asm_lgesoundeffect_param_allparam lgesoundeffect_allparam_str;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: enable_flag:%d\n", __func__, param->enable_flag);
-	pr_debug("%s: ModeType:%d\n", __func__, param->ModeType);
-	pr_debug("%s: OutputDeviceType:%d\n", __func__, param->OutputDeviceType);
-	pr_debug("%s: MediaType:%d\n", __func__, param->MediaType);
-	pr_debug("%s: BandGain:%d,%d,%d,%d,%d,%d,%d\n", __func__,
-		param->BandGain[0], param->BandGain[1],
-		param->BandGain[2], param->BandGain[3],
-		param->BandGain[4], param->BandGain[5],
-		param->BandGain[6]);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundeffect_param_allparam);
-	q6asm_add_hdr_async(ac, &lgesoundeffect_allparam_str.hdr, sz, TRUE);
-	lgesoundeffect_allparam_str.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundeffect_allparam_str.param.data_payload_addr_lsw = 0;
-	lgesoundeffect_allparam_str.param.data_payload_addr_msw = 0;
-
-	lgesoundeffect_allparam_str.param.mem_map_handle = 0;
-	lgesoundeffect_allparam_str.param.data_payload_size = sizeof(lgesoundeffect_allparam_str) -
-				sizeof(lgesoundeffect_allparam_str.hdr) - sizeof(lgesoundeffect_allparam_str.param);
-	lgesoundeffect_allparam_str.data.module_id = APPI_LGE_SOUNDEFFECT_MODULE_ID;
-	lgesoundeffect_allparam_str.data.param_id = APPI_LGE_SOUNDEFFECT_ALL_PARAM;
-	lgesoundeffect_allparam_str.data.param_size = lgesoundeffect_allparam_str.param.data_payload_size -
-				sizeof(lgesoundeffect_allparam_str.data);
-	lgesoundeffect_allparam_str.data.reserved = 0;
-	lgesoundeffect_allparam_str.enable_flag = param->enable_flag;
-	lgesoundeffect_allparam_str.ModeType = param->ModeType;
-	lgesoundeffect_allparam_str.OutputDeviceType = param->OutputDeviceType;
-	lgesoundeffect_allparam_str.MediaType = param->MediaType;
-	memcpy(&(lgesoundeffect_allparam_str.BandGain[0]), &(param->BandGain[0]), sizeof(int32_t)*7);
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundeffect_allparam_str);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundeffect_allparam_str.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundeffect_allparam_str.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-#endif
-#ifdef CONFIG_SND_LGE_NORMALIZER
-int q6asm_set_lgesoundnormalizer_enable(struct audio_client *ac, int enable)
-{
-	struct asm_lgesoundnormalizer_param_enable lgesoundnormalizer_enable;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: enable:%d\n", __func__, enable);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundnormalizer_param_enable);
-	q6asm_add_hdr_async(ac, &lgesoundnormalizer_enable.hdr, sz, TRUE);
-	lgesoundnormalizer_enable.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundnormalizer_enable.param.data_payload_addr_lsw = 0;
-	lgesoundnormalizer_enable.param.data_payload_addr_msw = 0;
-
-	lgesoundnormalizer_enable.param.mem_map_handle = 0;
-	lgesoundnormalizer_enable.param.data_payload_size = sizeof(lgesoundnormalizer_enable) -
-				sizeof(lgesoundnormalizer_enable.hdr) - sizeof(lgesoundnormalizer_enable.param);
-	lgesoundnormalizer_enable.data.module_id = APPI_LGE_SOUND_NORMALIZER_MODULE_ID;
-	lgesoundnormalizer_enable.data.param_id = APPI_LGE_SOUND_NORMALIZER_ENABLES;
-	lgesoundnormalizer_enable.data.param_size = lgesoundnormalizer_enable.param.data_payload_size - sizeof(lgesoundnormalizer_enable.data);
-	lgesoundnormalizer_enable.data.reserved = 0;
-	lgesoundnormalizer_enable.enable_flag = enable;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundnormalizer_enable);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_enable.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_enable.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundnormalizer_devicespeaker(struct audio_client *ac, int devicespeaker)
-{
-	struct asm_lgesoundnormalizer_param_devicespeaker lgesoundnormalizer_devicespeaker;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: devicespeaker:%d\n", __func__, devicespeaker);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundnormalizer_param_devicespeaker);
-	q6asm_add_hdr_async(ac, &lgesoundnormalizer_devicespeaker.hdr, sz, TRUE);
-	lgesoundnormalizer_devicespeaker.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundnormalizer_devicespeaker.param.data_payload_addr_lsw = 0;
-	lgesoundnormalizer_devicespeaker.param.data_payload_addr_msw = 0;
-
-	lgesoundnormalizer_devicespeaker.param.mem_map_handle = 0;
-	lgesoundnormalizer_devicespeaker.param.data_payload_size = sizeof(lgesoundnormalizer_devicespeaker) -
-				sizeof(lgesoundnormalizer_devicespeaker.hdr) - sizeof(lgesoundnormalizer_devicespeaker.param);
-	lgesoundnormalizer_devicespeaker.data.module_id = APPI_LGE_SOUND_NORMALIZER_MODULE_ID;
-	lgesoundnormalizer_devicespeaker.data.param_id = APPI_LGE_SOUND_NORMALIZER_DEVICE_SPEAKER;
-	lgesoundnormalizer_devicespeaker.data.param_size = lgesoundnormalizer_devicespeaker.param.data_payload_size - sizeof(lgesoundnormalizer_devicespeaker.data);
-	lgesoundnormalizer_devicespeaker.data.reserved = 0;
-	lgesoundnormalizer_devicespeaker.DeviceSpeaker = devicespeaker;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundnormalizer_devicespeaker);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_devicespeaker.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_devicespeaker.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundnormalizer_makeupgain(struct audio_client *ac, int makeupgain)
-{
-	struct asm_lgesoundnormalizer_param_makeupgain lgesoundnormalizer_makeupgain;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: makeupgain:%d\n", __func__, makeupgain);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundnormalizer_param_makeupgain);
-	q6asm_add_hdr_async(ac, &lgesoundnormalizer_makeupgain.hdr, sz, TRUE);
-	lgesoundnormalizer_makeupgain.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundnormalizer_makeupgain.param.data_payload_addr_lsw = 0;
-	lgesoundnormalizer_makeupgain.param.data_payload_addr_msw = 0;
-
-
-	lgesoundnormalizer_makeupgain.param.mem_map_handle = 0;
-	lgesoundnormalizer_makeupgain.param.data_payload_size = sizeof(lgesoundnormalizer_makeupgain) -
-				sizeof(lgesoundnormalizer_makeupgain.hdr) - sizeof(lgesoundnormalizer_makeupgain.param);
-	lgesoundnormalizer_makeupgain.data.module_id = APPI_LGE_SOUND_NORMALIZER_MODULE_ID;
-	lgesoundnormalizer_makeupgain.data.param_id = APPI_LGE_SOUND_NORMALIZER_MAKEUP_GAIN;
-	lgesoundnormalizer_makeupgain.data.param_size = lgesoundnormalizer_makeupgain.param.data_payload_size - sizeof(lgesoundnormalizer_makeupgain.data);
-	lgesoundnormalizer_makeupgain.data.reserved = 0;
-	lgesoundnormalizer_makeupgain.MakeupGain = makeupgain;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundnormalizer_makeupgain);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_makeupgain.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_makeupgain.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundnormalizer_prefilter(struct audio_client *ac, int prefilter)
-{
-	struct asm_lgesoundnormalizer_param_prefilter lgesoundnormalizer_prefilter;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: prefilter:%d\n", __func__, prefilter);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundnormalizer_param_prefilter);
-	q6asm_add_hdr_async(ac, &lgesoundnormalizer_prefilter.hdr, sz, TRUE);
-	lgesoundnormalizer_prefilter.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundnormalizer_prefilter.param.data_payload_addr_lsw = 0;
-	lgesoundnormalizer_prefilter.param.data_payload_addr_msw = 0;
-
-
-	lgesoundnormalizer_prefilter.param.mem_map_handle = 0;
-	lgesoundnormalizer_prefilter.param.data_payload_size = sizeof(lgesoundnormalizer_prefilter) -
-				sizeof(lgesoundnormalizer_prefilter.hdr) - sizeof(lgesoundnormalizer_prefilter.param);
-	lgesoundnormalizer_prefilter.data.module_id = APPI_LGE_SOUND_NORMALIZER_MODULE_ID;
-	lgesoundnormalizer_prefilter.data.param_id = APPI_LGE_SOUND_NORMALIZER_PREFILTER;
-	lgesoundnormalizer_prefilter.data.param_size = lgesoundnormalizer_prefilter.param.data_payload_size - sizeof(lgesoundnormalizer_prefilter.data);
-	lgesoundnormalizer_prefilter.data.reserved = 0;
-	lgesoundnormalizer_prefilter.PreFilter = prefilter;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundnormalizer_prefilter);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_prefilter.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_prefilter.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundnormalizer_limiterthreshold(struct audio_client *ac, int limiterthreshold)
-{
-	struct asm_lgesoundnormalizer_param_limiterthreshold lgesoundnormalizer_limiterthreshold;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: limiterthreshold:%d\n", __func__, limiterthreshold);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundnormalizer_param_limiterthreshold);
-	q6asm_add_hdr_async(ac, &lgesoundnormalizer_limiterthreshold.hdr, sz, TRUE);
-	lgesoundnormalizer_limiterthreshold.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundnormalizer_limiterthreshold.param.data_payload_addr_lsw = 0;
-	lgesoundnormalizer_limiterthreshold.param.data_payload_addr_msw = 0;
-
-
-	lgesoundnormalizer_limiterthreshold.param.mem_map_handle = 0;
-	lgesoundnormalizer_limiterthreshold.param.data_payload_size = sizeof(lgesoundnormalizer_limiterthreshold) -
-				sizeof(lgesoundnormalizer_limiterthreshold.hdr) - sizeof(lgesoundnormalizer_limiterthreshold.param);
-	lgesoundnormalizer_limiterthreshold.data.module_id = APPI_LGE_SOUND_NORMALIZER_MODULE_ID;
-	lgesoundnormalizer_limiterthreshold.data.param_id = APPI_LGE_SOUND_NORMALIZER_LIMITER_THRESHOLD;
-	lgesoundnormalizer_limiterthreshold.data.param_size = lgesoundnormalizer_limiterthreshold.param.data_payload_size - sizeof(lgesoundnormalizer_limiterthreshold.data);
-	lgesoundnormalizer_limiterthreshold.data.reserved = 0;
-	lgesoundnormalizer_limiterthreshold.LimiterThreshold = limiterthreshold;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundnormalizer_limiterthreshold);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_limiterthreshold.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_limiterthreshold.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundnormalizer_limiterslope(struct audio_client *ac, int limiterslope)
-{
-	struct asm_lgesoundnormalizer_param_limiterslope lgesoundnormalizer_limiterslope;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: limiterslope:%d\n", __func__, limiterslope);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundnormalizer_param_limiterslope);
-	q6asm_add_hdr_async(ac, &lgesoundnormalizer_limiterslope.hdr, sz, TRUE);
-	lgesoundnormalizer_limiterslope.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundnormalizer_limiterslope.param.data_payload_addr_lsw = 0;
-	lgesoundnormalizer_limiterslope.param.data_payload_addr_msw = 0;
-
-	lgesoundnormalizer_limiterslope.param.mem_map_handle = 0;
-	lgesoundnormalizer_limiterslope.param.data_payload_size = sizeof(lgesoundnormalizer_limiterslope) -
-				sizeof(lgesoundnormalizer_limiterslope.hdr) - sizeof(lgesoundnormalizer_limiterslope.param);
-	lgesoundnormalizer_limiterslope.data.module_id = APPI_LGE_SOUND_NORMALIZER_MODULE_ID;
-	lgesoundnormalizer_limiterslope.data.param_id = APPI_LGE_SOUND_NORMALIZER_LIMITER_SLOPE;
-	lgesoundnormalizer_limiterslope.data.param_size = lgesoundnormalizer_limiterslope.param.data_payload_size - sizeof(lgesoundnormalizer_limiterslope.data);
-	lgesoundnormalizer_limiterslope.data.reserved = 0;
-	lgesoundnormalizer_limiterslope.LimiterSlope = limiterslope;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundnormalizer_limiterslope);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_limiterslope.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_limiterslope.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundnormalizer_compressorthreshold(struct audio_client *ac, int compressorthreshold)
-{
-	struct asm_lgesoundnormalizer_param_compressorthreshold lgesoundnormalizer_compressorthreshold;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: compressorthreshold:%d\n", __func__, compressorthreshold);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundnormalizer_param_compressorthreshold);
-	q6asm_add_hdr_async(ac, &lgesoundnormalizer_compressorthreshold.hdr, sz, TRUE);
-	lgesoundnormalizer_compressorthreshold.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundnormalizer_compressorthreshold.param.data_payload_addr_lsw = 0;
-	lgesoundnormalizer_compressorthreshold.param.data_payload_addr_msw = 0;
-
-	lgesoundnormalizer_compressorthreshold.param.mem_map_handle = 0;
-	lgesoundnormalizer_compressorthreshold.param.data_payload_size = sizeof(lgesoundnormalizer_compressorthreshold) -
-				sizeof(lgesoundnormalizer_compressorthreshold.hdr) - sizeof(lgesoundnormalizer_compressorthreshold.param);
-	lgesoundnormalizer_compressorthreshold.data.module_id = APPI_LGE_SOUND_NORMALIZER_MODULE_ID;
-	lgesoundnormalizer_compressorthreshold.data.param_id = APPI_LGE_SOUND_NORMALIZER_COMPRESSOR_THRESHOLD;
-	lgesoundnormalizer_compressorthreshold.data.param_size = lgesoundnormalizer_compressorthreshold.param.data_payload_size - sizeof(lgesoundnormalizer_compressorthreshold.data);
-	lgesoundnormalizer_compressorthreshold.data.reserved = 0;
-	lgesoundnormalizer_compressorthreshold.CompressorThreshold = compressorthreshold;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundnormalizer_compressorthreshold);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_compressorthreshold.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_compressorthreshold.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundnormalizer_compressorslope(struct audio_client *ac, int compressorslope)
-{
-	struct asm_lgesoundnormalizer_param_compressorslope lgesoundnormalizer_compressorslope;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: compressorslope:%d\n", __func__, compressorslope);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundnormalizer_param_compressorslope);
-	q6asm_add_hdr_async(ac, &lgesoundnormalizer_compressorslope.hdr, sz, TRUE);
-	lgesoundnormalizer_compressorslope.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundnormalizer_compressorslope.param.data_payload_addr_lsw = 0;
-	lgesoundnormalizer_compressorslope.param.data_payload_addr_msw = 0;
-
-	lgesoundnormalizer_compressorslope.param.mem_map_handle = 0;
-	lgesoundnormalizer_compressorslope.param.data_payload_size = sizeof(lgesoundnormalizer_compressorslope) -
-				sizeof(lgesoundnormalizer_compressorslope.hdr) - sizeof(lgesoundnormalizer_compressorslope.param);
-	lgesoundnormalizer_compressorslope.data.module_id = APPI_LGE_SOUND_NORMALIZER_MODULE_ID;
-	lgesoundnormalizer_compressorslope.data.param_id = APPI_LGE_SOUND_NORMALIZER_COMPRESSOR_SLOPE;
-	lgesoundnormalizer_compressorslope.data.param_size = lgesoundnormalizer_compressorslope.param.data_payload_size - sizeof(lgesoundnormalizer_compressorslope.data);
-	lgesoundnormalizer_compressorslope.data.reserved = 0;
-	lgesoundnormalizer_compressorslope.CompressorSlope = compressorslope;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundnormalizer_compressorslope);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_compressorslope.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_compressorslope.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundnormalizer_onoff(struct audio_client *ac, int onoff)
-{
-	struct asm_lgesoundnormalizer_param_onoff lgesoundnormalizer_onoff;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: onoff:%d\n", __func__, onoff);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundnormalizer_param_onoff);
-	q6asm_add_hdr_async(ac, &lgesoundnormalizer_onoff.hdr, sz, TRUE);
-	lgesoundnormalizer_onoff.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundnormalizer_onoff.param.data_payload_addr_lsw = 0;
-	lgesoundnormalizer_onoff.param.data_payload_addr_msw = 0;
-
-
-	lgesoundnormalizer_onoff.param.mem_map_handle = 0;
-	lgesoundnormalizer_onoff.param.data_payload_size = sizeof(lgesoundnormalizer_onoff) -
-				sizeof(lgesoundnormalizer_onoff.hdr) - sizeof(lgesoundnormalizer_onoff.param);
-	lgesoundnormalizer_onoff.data.module_id = APPI_LGE_SOUND_NORMALIZER_MODULE_ID;
-	lgesoundnormalizer_onoff.data.param_id = APPI_LGE_SOUND_NORMALIZER_ON_OFF;
-	lgesoundnormalizer_onoff.data.param_size = lgesoundnormalizer_onoff.param.data_payload_size - sizeof(lgesoundnormalizer_onoff.data);
-	lgesoundnormalizer_onoff.data.reserved = 0;
-	lgesoundnormalizer_onoff.OnOff = onoff;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundnormalizer_onoff);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_onoff.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_onoff.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundnormalizer_allparam(struct audio_client *ac, struct lgesoundnormalizer_allparam_st *param)
-{
-	struct asm_lgesoundnormalizer_param_allparam lgesoundnormalizer_allparam_str;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_info("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: enable_flag:%d\n", __func__, param->enable_flag);
-	pr_info("%s: onoff:%d\n", __func__, param->OnOff);
-	pr_info("%s: MakeupGain:%d\n", __func__, param->MakeupGain);
-	pr_info("%s: PreFilter:%d\n", __func__, param->PreFilter);
-	pr_info("%s: LimiterThreshold:%d\n", __func__, param->LimiterThreshold);
-	pr_info("%s: LimiterSlope:%d\n", __func__, param->LimiterSlope);
-	pr_info("%s: CompressorThreshold:%d\n", __func__, param->CompressorThreshold);
-	pr_info("%s: CompressorSlope:%d\n", __func__, param->CompressorSlope);
-	pr_info("%s: DeviceSpeaker:%d\n", __func__, param->DeviceSpeaker);
-	pr_info("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundnormalizer_param_allparam);
-	q6asm_add_hdr_async(ac, &lgesoundnormalizer_allparam_str.hdr, sz, TRUE);
-	lgesoundnormalizer_allparam_str.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundnormalizer_allparam_str.param.data_payload_addr_lsw = 0;
-	lgesoundnormalizer_allparam_str.param.data_payload_addr_msw = 0;
-
-
-	lgesoundnormalizer_allparam_str.param.mem_map_handle = 0;
-	lgesoundnormalizer_allparam_str.param.data_payload_size = sizeof(lgesoundnormalizer_allparam_str) -
-				sizeof(lgesoundnormalizer_allparam_str.hdr) - sizeof(lgesoundnormalizer_allparam_str.param);
-	lgesoundnormalizer_allparam_str.data.module_id = APPI_LGE_SOUND_NORMALIZER_MODULE_ID;
-	lgesoundnormalizer_allparam_str.data.param_id = APPI_LGE_SOUND_NORMALIZER_ALL_PARAM;
-	lgesoundnormalizer_allparam_str.data.param_size = lgesoundnormalizer_allparam_str.param.data_payload_size - sizeof(lgesoundnormalizer_allparam_str.data);
-	lgesoundnormalizer_allparam_str.data.reserved = 0;
-	lgesoundnormalizer_allparam_str.OnOff = param->OnOff;
-	lgesoundnormalizer_allparam_str.enable_flag = param->enable_flag;
-	lgesoundnormalizer_allparam_str.MakeupGain = param->MakeupGain;
-	lgesoundnormalizer_allparam_str.PreFilter = param->PreFilter;
-	lgesoundnormalizer_allparam_str.LimiterThreshold = param->LimiterThreshold;
-	lgesoundnormalizer_allparam_str.LimiterSlope = param->LimiterSlope;
-	lgesoundnormalizer_allparam_str.CompressorThreshold = param->CompressorThreshold;
-	lgesoundnormalizer_allparam_str.CompressorSlope = param->CompressorSlope;
-	lgesoundnormalizer_allparam_str.DeviceSpeaker = param->DeviceSpeaker;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundnormalizer_allparam_str);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_allparam_str.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundnormalizer_allparam_str.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-#endif
-#ifdef CONFIG_SND_LGE_MABL
-int q6asm_set_lgesoundmabl_devicespeaker(struct audio_client *ac, int devicespeaker)
-{
-	struct asm_lgesoundmabl_param_devicespeaker lgesoundmabl_devicespeaker;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: devicespeaker:%d\n", __func__, devicespeaker);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundmabl_param_devicespeaker);
-	q6asm_add_hdr_async(ac, &lgesoundmabl_devicespeaker.hdr, sz, TRUE);
-
-	lgesoundmabl_devicespeaker.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundmabl_devicespeaker.param.data_payload_addr_lsw = 0;
-	lgesoundmabl_devicespeaker.param.data_payload_addr_msw = 0;
-
-	lgesoundmabl_devicespeaker.param.mem_map_handle = 0;
-	lgesoundmabl_devicespeaker.param.data_payload_size = sizeof(lgesoundmabl_devicespeaker) -
-				sizeof(lgesoundmabl_devicespeaker.hdr) - sizeof(lgesoundmabl_devicespeaker.param);
-
-	lgesoundmabl_devicespeaker.data.module_id = APPI_LGE_SOUND_MABL_MODULE_ID;
-	lgesoundmabl_devicespeaker.data.param_id = APPI_LGE_SOUND_MABL_DEVICE_SPEAKER;
-	lgesoundmabl_devicespeaker.data.param_size = lgesoundmabl_devicespeaker.param.data_payload_size - sizeof(lgesoundmabl_devicespeaker.data);
-	lgesoundmabl_devicespeaker.data.reserved = 0;
-	lgesoundmabl_devicespeaker.DeviceSpeaker = devicespeaker;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundmabl_devicespeaker);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundmabl_devicespeaker.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundmabl_devicespeaker.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-int q6asm_set_lgesoundmabl_monoenable(struct audio_client *ac, int monoenable)
-{
-	struct asm_lgesoundmabl_param_monoenable lgesoundmabl_monoenable;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: monoenable:%d\n", __func__, monoenable);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundmabl_param_monoenable);
-	q6asm_add_hdr_async(ac, &lgesoundmabl_monoenable.hdr, sz, TRUE);
-
-	lgesoundmabl_monoenable.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundmabl_monoenable.param.data_payload_addr_lsw = 0;
-	lgesoundmabl_monoenable.param.data_payload_addr_msw = 0;
-
-	lgesoundmabl_monoenable.param.mem_map_handle = 0;
-	lgesoundmabl_monoenable.param.data_payload_size = sizeof(lgesoundmabl_monoenable) -
-				sizeof(lgesoundmabl_monoenable.hdr) - sizeof(lgesoundmabl_monoenable.param);
-
-	lgesoundmabl_monoenable.data.module_id = APPI_LGE_SOUND_MABL_MODULE_ID;
-	lgesoundmabl_monoenable.data.param_id = APPI_LGE_SOUND_MABL_MONO_AUDIO_ENABLE;
-	lgesoundmabl_monoenable.data.param_size = lgesoundmabl_monoenable.param.data_payload_size - sizeof(lgesoundmabl_monoenable.data);
-	lgesoundmabl_monoenable.data.reserved = 0;
-	lgesoundmabl_monoenable.MonoEnable = monoenable;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundmabl_monoenable);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundmabl_monoenable.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundmabl_monoenable.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-int q6asm_set_lgesoundmabl_lrbalancecontrol(struct audio_client *ac, int lrbalancecontrol)
-{
-	struct asm_lgesoundmabl_param_lrbalancecontrol lgesoundmabl_lrbalancecontrol;
-	int sz = 0;
-	int rc  = 0;
-
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: lrbalancecontrol:%d\n", __func__, lrbalancecontrol);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundmabl_param_lrbalancecontrol);
-	q6asm_add_hdr_async(ac, &lgesoundmabl_lrbalancecontrol.hdr, sz, TRUE);
-
-	lgesoundmabl_lrbalancecontrol.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundmabl_lrbalancecontrol.param.data_payload_addr_lsw = 0;
-	lgesoundmabl_lrbalancecontrol.param.data_payload_addr_msw = 0;
-
-	lgesoundmabl_lrbalancecontrol.param.mem_map_handle = 0;
-	lgesoundmabl_lrbalancecontrol.param.data_payload_size = sizeof(lgesoundmabl_lrbalancecontrol) -
-				sizeof(lgesoundmabl_lrbalancecontrol.hdr) - sizeof(lgesoundmabl_lrbalancecontrol.param);
-
-	lgesoundmabl_lrbalancecontrol.data.module_id = APPI_LGE_SOUND_MABL_MODULE_ID;
-	lgesoundmabl_lrbalancecontrol.data.param_id = APPI_LGE_SOUND_MABL_LR_BALANCE_CONTROL;
-	lgesoundmabl_lrbalancecontrol.data.param_size = lgesoundmabl_lrbalancecontrol.param.data_payload_size - sizeof(lgesoundmabl_lrbalancecontrol.data);
-	lgesoundmabl_lrbalancecontrol.data.reserved = 0;
-	lgesoundmabl_lrbalancecontrol.LrBalanceControl = lrbalancecontrol;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundmabl_lrbalancecontrol);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundmabl_lrbalancecontrol.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundmabl_lrbalancecontrol.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-
-int q6asm_set_lgesoundmabl_allparam(struct audio_client *ac, struct lgesoundmabl_allparam_st *param)
-{
-	struct asm_lgesoundmabl_param_allparam lgesoundmabl_allparam_str;
-	int sz = 0;
-	int rc  = 0;
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-	pr_debug("%s: DeviceSpeaker:%d\n", __func__, param->DeviceSpeaker);
-	pr_debug("%s: MonoEnable:%d\n", __func__, param->MonoEnable);
-	pr_debug("%s: LrBalanceControl:%d\n", __func__, param->LrBalanceControl);
-	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
-
-	if (!ac || ac->apr == NULL) {
-		pr_err("%s: APR handle NULL\n", __func__);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	sz = sizeof(struct asm_lgesoundmabl_param_allparam);
-	q6asm_add_hdr_async(ac, &lgesoundmabl_allparam_str.hdr, sz, TRUE);
-	lgesoundmabl_allparam_str.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
-	lgesoundmabl_allparam_str.param.data_payload_addr_lsw = 0;
-	lgesoundmabl_allparam_str.param.data_payload_addr_msw = 0;
-
-	lgesoundmabl_allparam_str.param.mem_map_handle = 0;
-	lgesoundmabl_allparam_str.param.data_payload_size = sizeof(lgesoundmabl_allparam_str) -
-				sizeof(lgesoundmabl_allparam_str.hdr) - sizeof(lgesoundmabl_allparam_str.param);
-	lgesoundmabl_allparam_str.data.module_id = APPI_LGE_SOUND_MABL_MODULE_ID;
-	lgesoundmabl_allparam_str.data.param_id = APPI_LGE_SOUND_MABL_ALL_PARAM;
-	lgesoundmabl_allparam_str.data.param_size = lgesoundmabl_allparam_str.param.data_payload_size - sizeof(lgesoundmabl_allparam_str.data);
-	lgesoundmabl_allparam_str.data.reserved = 0;
-	lgesoundmabl_allparam_str.DeviceSpeaker = param->DeviceSpeaker;
-	lgesoundmabl_allparam_str.LrBalanceControl = param->LrBalanceControl;
-        lgesoundmabl_allparam_str.MonoEnable = param->MonoEnable;
-
-	rc = apr_send_pkt(ac->apr, (uint32_t *) &lgesoundmabl_allparam_str);
-	if (rc < 0) {
-		pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
-						lgesoundmabl_allparam_str.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-
-	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) == 0), 1*HZ);
-	if (!rc) {
-		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
-						lgesoundmabl_allparam_str.data.param_id);
-		rc = -EINVAL;
-		goto fail_cmd;
-	}
-	rc = 0;
-fail_cmd:
-	return rc;
-}
-#endif /*CONFIG_SND_LGE_MABL*/
 
 int q6asm_read(struct audio_client *ac)
 {
@@ -6073,7 +4975,7 @@ int q6asm_read_nolock(struct audio_client *ac)
 		dsp_buf = port->dsp_buf;
 		ab = &port->buf[dsp_buf];
 
-		dev_vdbg(ac->dev, "%s: session[%d]dsp-buf[%d][%p]cpu_buf[%d][%pa]\n",
+		dev_vdbg(ac->dev, "%s: session[%d]dsp-buf[%d][%pK]cpu_buf[%d][%pK]\n",
 				__func__,
 				ac->session,
 				dsp_buf,
@@ -6097,8 +4999,8 @@ int q6asm_read_nolock(struct audio_client *ac)
 			}
 		}
 
-		port->dsp_buf = q6asm_get_next_buf(port->dsp_buf, port->max_buf_cnt);
-		dev_vdbg(ac->dev, "%s: buf add[%pa] token[%d] uid[%d]\n",
+		port->dsp_buf = (port->dsp_buf + 1) & (port->max_buf_cnt - 1);
+		dev_vdbg(ac->dev, "%s: buf add[%pK] token[%d] uid[%d]\n",
 				__func__, &ab->phys, read.hdr.token,
 				read.seq_id);
 		rc = apr_send_pkt(ac->apr, (uint32_t *) &read);
@@ -6161,7 +5063,7 @@ int q6asm_async_write(struct audio_client *ac,
 	else
 		lbuf_phys_addr = param->paddr;
 
-	dev_vdbg(ac->dev, "%s: token[0x%x], buf_addr[%pa], buf_size[0x%x], ts_msw[0x%x], ts_lsw[0x%x], lbuf_phys_addr: 0x[%pa]\n",
+	dev_vdbg(ac->dev, "%s: token[0x%x], buf_addr[%pK], buf_size[0x%x], ts_msw[0x%x], ts_lsw[0x%x], lbuf_phys_addr: 0x[%pK]\n",
 			__func__,
 			write.hdr.token, &param->paddr,
 			write.buf_size, write.timestamp_msw,
@@ -6302,13 +5204,13 @@ int q6asm_write(struct audio_client *ac, uint32_t len, uint32_t msw_ts,
 			write.flags = (0x00000000 | (flags & 0x800000FF));
 		else
 			write.flags = (0x80000000 | flags);
-		port->dsp_buf = q6asm_get_next_buf(port->dsp_buf, port->max_buf_cnt);
+		port->dsp_buf = (port->dsp_buf + 1) & (port->max_buf_cnt - 1);
 		buf_node = list_first_entry(&ac->port[IN].mem_map_handle,
 				struct asm_buffer_node,
 				list);
 		write.mem_map_handle = buf_node->mmap_hdl;
 
-		dev_vdbg(ac->dev, "%s: ab->phys[%pa]bufadd[0x%x] token[0x%x]buf_id[0x%x]buf_size[0x%x]mmaphdl[0x%x]"
+		dev_vdbg(ac->dev, "%s: ab->phys[%pK]bufadd[0x%x] token[0x%x]buf_id[0x%x]buf_size[0x%x]mmaphdl[0x%x]"
 				, __func__,
 				&ab->phys,
 				write.buf_addr_lsw,
@@ -6379,9 +5281,9 @@ int q6asm_write_nolock(struct audio_client *ac, uint32_t len, uint32_t msw_ts,
 			write.flags = (0x00000000 | (flags & 0x800000FF));
 		else
 			write.flags = (0x80000000 | flags);
-		port->dsp_buf = q6asm_get_next_buf(port->dsp_buf, port->max_buf_cnt);
+		port->dsp_buf = (port->dsp_buf + 1) & (port->max_buf_cnt - 1);
 
-		dev_vdbg(ac->dev, "%s: ab->phys[%pa]bufadd[0x%x]token[0x%x] buf_id[0x%x]buf_size[0x%x]mmaphdl[0x%x]"
+		dev_vdbg(ac->dev, "%s: ab->phys[%pK]bufadd[0x%x]token[0x%x] buf_id[0x%x]buf_size[0x%x]mmaphdl[0x%x]"
 				, __func__,
 				&ab->phys,
 				write.buf_addr_lsw,

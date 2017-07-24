@@ -38,9 +38,6 @@
 #include <linux/nsproxy.h>
 #include <linux/backing-dev.h>
 #include <linux/ecryptfs.h>
-#ifdef CONFIG_SD_ENCRYPTION_MANAGER
-#include "sdcard_encrypt_mgr.h"
-#endif
 #include <linux/crypto.h>
 
 #define ECRYPTFS_DEFAULT_IV_BYTES 16
@@ -335,7 +332,6 @@ struct ecryptfs_mount_crypt_stat {
 #define ECRYPTFS_GLOBAL_ENCFN_USE_MOUNT_FNEK   0x00000020
 #define ECRYPTFS_GLOBAL_ENCFN_USE_FEK          0x00000040
 #define ECRYPTFS_GLOBAL_MOUNT_AUTH_TOK_ONLY    0x00000080
-
 	u32 flags;
 	struct list_head global_auth_tok_list;
 	struct mutex global_auth_tok_list_mutex;
@@ -348,22 +344,11 @@ struct ecryptfs_mount_crypt_stat {
 	char global_default_fnek_sig[ECRYPTFS_SIG_SIZE_HEX + 1];
 };
 
-#ifdef FEATURE_SDCARD_ENCRYPTION
-struct ecryptfs_mount_sd_crypt_stat {
-#define ECRYPTFS_DECRYPTION_ONLY               0x00000001
-#define ECRYPTFS_MEDIA_EXCEPTION               0x00000002
-		u32 flags;
-};
-#endif
-
 /* superblock private data. */
 struct ecryptfs_sb_info {
 	struct super_block *wsi_sb;
 	struct ecryptfs_mount_crypt_stat mount_crypt_stat;
 	struct backing_dev_info bdi;
-#ifdef FEATURE_SDCARD_ENCRYPTION
-	struct ecryptfs_mount_sd_crypt_stat mount_sd_crypt_stat;
-#endif
 };
 
 /* file private data. */

@@ -32,12 +32,6 @@
 #include <linux/platform_device.h>
 #include <linux/thermal.h>
 
-#ifdef CONFIG_LGE_PM_MPP_LED_SINK
-#include <mach/board_lge.h>
-#define P_MUX1_1_1				0x10
-#define LR_MUX2_BAT_ID				0x31
-#endif
-
 /* QPNP VADC register definition */
 #define QPNP_VADC_REVISION1				0x0
 #define QPNP_VADC_REVISION2				0x1
@@ -2094,31 +2088,8 @@ static ssize_t qpnp_adc_show(struct device *dev,
 	struct qpnp_vadc_chip *vadc = dev_get_drvdata(dev);
 	struct qpnp_vadc_result result;
 	int rc = -1;
-#ifdef CONFIG_LGE_PM_MPP_LED_SINK
-#if defined(CONFIG_MACH_MSM8916_C70_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C70N_GLOBAL_COM) || \
-    defined(CONFIG_MACH_MSM8916_C70DS_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C70N_ATT_US) || \
-    defined(CONFIG_MACH_MSM8916_C70N_TMO_US) || defined(CONFIG_MACH_MSM8916_C70N_MPCS_US) || \
-    defined(CONFIG_MACH_MSM8916_C70_USC_US) || defined(CONFIG_MACH_MSM8916_C90_GLOBAL_COM) || \
-    defined(CONFIG_MACH_MSM8916_C70_RGS_CA) || defined(CONFIG_MACH_MSM8916_C70N_CRK_US)
-	hw_rev_type hw_rev;
-	hw_rev = lge_get_board_revno();
 
-	if (attr->index == P_MUX1_1_1) {
-		if ((hw_rev == HW_REV_B)||(hw_rev == HW_REV_C))
-			rc = qpnp_vadc_read(vadc, LR_MUX2_BAT_ID, &result);
-		else
-			rc = qpnp_vadc_read(vadc, attr->index, &result);
-	} else
-		rc = qpnp_vadc_read(vadc, attr->index, &result);
-#else
-	if (attr->index == P_MUX1_1_1)
-		rc = qpnp_vadc_read(vadc, LR_MUX2_BAT_ID, &result);
-	else
-		rc = qpnp_vadc_read(vadc, attr->index, &result);
-#endif
-#else
 	rc = qpnp_vadc_read(vadc, attr->index, &result);
-#endif
 
 	if (rc) {
 		pr_err("VADC read error with %d\n", rc);

@@ -437,9 +437,7 @@ void __show_regs(struct pt_regs *regs)
 		printk("Control: %08x%s\n", ctrl, buf);
 	}
 #endif
-#ifndef CONFIG_LGE_FORCE_SHOW_EXTRA_REGS
 	if (get_fs() == get_ds())
-#endif
 		show_extra_register_data(regs, 128);
 }
 

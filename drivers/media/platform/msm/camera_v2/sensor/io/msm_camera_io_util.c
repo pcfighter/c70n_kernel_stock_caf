@@ -253,6 +253,12 @@ int msm_camera_config_vreg(struct device *dev, struct camera_vreg_t *cam_vreg,
 		pr_err("%s:%d vreg sequence invalid\n", __func__, __LINE__);
 		return -EINVAL;
 	}
+
+	if (cam_vreg == NULL) {
+		pr_err("%s:%d cam_vreg sequence invalid\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+
 	if (!num_vreg_seq)
 		num_vreg_seq = num_vreg;
 
@@ -607,10 +613,6 @@ int msm_camera_request_gpio_table(struct gpio *gpio_tbl, uint8_t size,
 				pr_err("%s:%d gpio %d:%s request fails\n",
 					__func__, __LINE__,
 					gpio_tbl[i].gpio, gpio_tbl[i].label);
-
-#if defined (CONFIG_MACH_MSM8916_C70W_KR) || defined(CONFIG_MSM8916_C90) || defined(CONFIG_MACH_MSM8916_C90_GLOBAL_COM)	//LGE_CHANGE, return error to caller, jongkwon.chae@lge.com
-				rc = err;
-#endif
 			}
 		}
 	} else {

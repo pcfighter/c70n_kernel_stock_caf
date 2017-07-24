@@ -97,7 +97,7 @@ static inline void msm_spm_dump_regs(unsigned int cpu)
 	return;
 }
 
-static inline int msm_spm_config_low_power_mode(struct msm_spm_device *dev,
+int msm_spm_config_low_power_mode(struct msm_spm_device *dev,
 		unsigned int mode, bool notify_rpm)
 {
 	return -ENODEV;
@@ -114,7 +114,7 @@ struct msm_spm_device *msm_spm_get_device_by_name(const char *name)
 	return NULL;
 }
 
-static inline bool msm_spm_is_mode_avail(unsigned int mode)
+bool msm_spm_is_mode_avail(unsigned int mode)
 {
 	return false;
 }

@@ -44,10 +44,6 @@
 #include <linux/usb.h>
 #include <linux/usb/hcd.h>
 
-#if defined(CONFIG_LGE_USB_TYPE_A)
-#include <linux/delay.h>
-#endif
-
 #include "usb.h"
 
 
@@ -1714,7 +1710,7 @@ rescan:
 		/* kick hcd */
 		unlink1(hcd, urb, -ESHUTDOWN);
 		dev_dbg (hcd->self.controller,
-			"shutdown urb %p ep%d%s%s\n",
+			"shutdown urb %pK ep%d%s%s\n",
 			urb, usb_endpoint_num(&ep->desc),
 			is_in ? "in" : "out",
 			({	char *s;
@@ -2169,9 +2165,6 @@ void usb_hcd_resume_root_hub (struct usb_hcd *hcd)
 {
 	unsigned long flags;
 
-#if defined(CONFIG_LGE_USB_TYPE_A)
-	mdelay(50);
-#endif
 	spin_lock_irqsave (&hcd_root_hub_lock, flags);
 	if (hcd->rh_registered) {
 		set_bit(HCD_FLAG_WAKEUP_PENDING, &hcd->flags);

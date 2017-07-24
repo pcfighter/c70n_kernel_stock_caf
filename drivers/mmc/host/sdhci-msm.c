@@ -44,15 +44,6 @@
 
 #include "sdhci-pltfm.h"
 
-#if defined(CONFIG_MACH_MSM8916_C50N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C50DS_GLOBAL_COM) \
-    || defined(CONFIG_MACH_MSM8916_C50_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C50_TRF_US) \
-    || defined(CONFIG_MACH_MSM8916_Y50_TRF_US) || defined(CONFIG_MACH_MSM8916_Y50C_TRF_US) \
-    || defined(CONFIG_MACH_MSM8916_C50C_VZW) || defined(CONFIG_MACH_MSM8916_C50_TMO_US) \
-    || defined(CONFIG_MACH_MSM8916_C50_MPCS_US) || defined(CONFIG_MACH_MSM8916_C50_SPR_US) || defined(CONFIG_MACH_MSM8916_C30_TRF_US) || defined(CONFIG_MACH_MSM8916_C30C_TRF_US) \
-    || defined(CONFIG_MACH_MSM8916_C50_CRK_US) || defined(CONFIG_MACH_MSM8916_C50_VZW)
-#include <mach/board_lge.h>
-#endif
-
 enum sdc_mpm_pin_state {
 	SDC_DAT1_DISABLE,
 	SDC_DAT1_ENABLE,
@@ -114,7 +105,9 @@ enum sdc_mpm_pin_state {
 #define CORE_HC_SELECT_IN_MASK	(7 << 19)
 
 #define CORE_VENDOR_SPEC_FUNC2 0x110
-#define CORE_ONE_MID_EN (1 << 25)
+#define HC_SW_RST_WAIT_IDLE_DIS	(1 << 20)
+#define HC_SW_RST_REQ (1 << 21)
+#define CORE_ONE_MID_EN     (1 << 25)
 
 #define CORE_VENDOR_SPEC_CAPABILITIES0	0x11C
 #define CORE_8_BIT_SUPPORT		(1 << 18)
@@ -3129,6 +3122,48 @@ void sdhci_msm_dump_vendor_regs(struct sdhci_host *host)
 			CORE_TESTBUS_CONFIG);
 }
 
+void sdhci_msm_reset_workaround(struct sdhci_host *host, u32 enable)
+{
+	u32 vendor_func2;
+	unsigned long timeout;
+
+	vendor_func2 = readl_relaxed(host->ioaddr + CORE_VENDOR_SPEC_FUNC2);
+
+	if (enable) {
+		writel_relaxed(vendor_func2 | HC_SW_RST_REQ, host->ioaddr +
+				CORE_VENDOR_SPEC_FUNC2);
+		timeout = 10000;
+		while (readl_relaxed(host->ioaddr + CORE_VENDOR_SPEC_FUNC2) &
+				HC_SW_RST_REQ) {
+			if (timeout == 0) {
+				pr_info("%s: Applying wait idle disable workaround\n",
+					mmc_hostname(host->mmc));
+				/*
+				 * Apply the reset workaround to not wait for
+				 * pending data transfers on AXI before
+				 * resetting the controller. This could be
+				 * risky if the transfers were stuck on the
+				 * AXI bus.
+				 */
+				vendor_func2 = readl_relaxed(host->ioaddr +
+						CORE_VENDOR_SPEC_FUNC2);
+				writel_relaxed(vendor_func2 |
+					HC_SW_RST_WAIT_IDLE_DIS,
+					host->ioaddr + CORE_VENDOR_SPEC_FUNC2);
+				host->reset_wa_t = ktime_get();
+				return;
+			}
+			timeout--;
+			udelay(10);
+		}
+		pr_info("%s: waiting for SW_RST_REQ is successful\n",
+				mmc_hostname(host->mmc));
+	} else {
+		writel_relaxed(vendor_func2 & ~HC_SW_RST_WAIT_IDLE_DIS,
+				host->ioaddr + CORE_VENDOR_SPEC_FUNC2);
+	}
+}
+
 static struct sdhci_ops sdhci_msm_ops = {
 	.set_uhs_signaling = sdhci_msm_set_uhs_signaling,
 	.check_power_status = sdhci_msm_check_power_status,
@@ -3142,6 +3177,7 @@ static struct sdhci_ops sdhci_msm_ops = {
 	.dump_vendor_regs = sdhci_msm_dump_vendor_regs,
 	.config_auto_tuning_cmd = sdhci_msm_config_auto_tuning_cmd,
 	.enable_controller_clock = sdhci_msm_enable_controller_clock,
+	.reset_workaround = sdhci_msm_reset_workaround,
 };
 
 static int sdhci_msm_cfg_mpm_pin_wakeup(struct sdhci_host *host, unsigned mode)
@@ -3217,9 +3253,10 @@ static void sdhci_set_default_hw_caps(struct sdhci_msm_host *msm_host,
 	 * on 8992 (minor 0x3e) as a workaround to reset for data stuck issue.
 	 */
 	if (major == 1 && (minor == 0x2e || minor == 0x3e)) {
+		host->quirks2 |= SDHCI_QUIRK2_USE_RESET_WORKAROUND;
 		val = readl_relaxed(host->ioaddr + CORE_VENDOR_SPEC_FUNC2);
 		writel_relaxed((val | CORE_ONE_MID_EN),
-		host->ioaddr + CORE_VENDOR_SPEC_FUNC2);
+			host->ioaddr + CORE_VENDOR_SPEC_FUNC2);
 	}
 	/*
 	 * SDCC 5 controller with major version 1, minor version 0x34 and later
@@ -3249,46 +3286,6 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	u16 host_version;
 	u32 pwr, irq_status, irq_ctl;
 	unsigned long flags;
-
-/* D3-5T-FS@lge.com
- * 2014-09-24
- * C50 Rev. A
- * SD Card VDD LDO Enable
- */
-#if defined(CONFIG_MACH_MSM8916_C50N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C50DS_GLOBAL_COM) \
-    || defined(CONFIG_MACH_MSM8916_C50_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C50_TRF_US) \
-    || defined(CONFIG_MACH_MSM8916_Y50_TRF_US) || defined(CONFIG_MACH_MSM8916_Y50C_TRF_US) \
-	|| defined(CONFIG_MACH_MSM8916_C50C_VZW) || defined(CONFIG_MACH_MSM8916_C50_TMO_US) \
-	|| defined(CONFIG_MACH_MSM8916_C50_MPCS_US) || defined(CONFIG_MACH_MSM8916_C50_SPR_US) || defined(CONFIG_MACH_MSM8916_C30_TRF_US) || defined(CONFIG_MACH_MSM8916_C30C_TRF_US) \
-	|| defined(CONFIG_MACH_MSM8916_C50_CRK_US) || defined(CONFIG_MACH_MSM8916_C50_VZW)
-    int rc;
-#if defined(CONFIG_MACH_MSM8916_C50N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C50DS_GLOBAL_COM) \
-    || defined(CONFIG_MACH_MSM8916_C50_GLOBAL_COM)
-#if !defined(CONFIG_MACH_MSM8916_C50_GLOBAL_GT)
-    hw_rev_type hw_rev = lge_get_board_revno();
-
-    if(hw_rev <= HW_REV_A) {
-#endif
-#endif
-		if(gpio_is_valid(962)) {
-            rc = gpio_request(962, "sd_ldo_en");
-            mdelay(5);
-
-            if(rc) {
-                pr_err("sd_ldo_en gpio failed %d\n", rc);
-            } else {
-                rc = gpio_direction_output(962, 1);
-                mdelay(5);
-                gpio_set_value(962, 1);
-            }
-        }
-#if defined(CONFIG_MACH_MSM8916_C50N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C50DS_GLOBAL_COM) \
-    || defined(CONFIG_MACH_MSM8916_C50_GLOBAL_COM)
-#if !defined(CONFIG_MACH_MSM8916_C50_GLOBAL_GT)
-	}
-#endif
-#endif
-#endif
 
 	pr_debug("%s: Enter %s\n", dev_name(&pdev->dev), __func__);
 	msm_host = devm_kzalloc(&pdev->dev, sizeof(struct sdhci_msm_host),
@@ -3548,6 +3545,7 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	/* Set host capabilities */
 	msm_host->mmc->caps |= msm_host->pdata->mmc_bus_width;
 	msm_host->mmc->caps |= msm_host->pdata->caps;
+	msm_host->mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY;
 	msm_host->mmc->caps2 |= msm_host->pdata->caps2;
 	msm_host->mmc->caps2 |= MMC_CAP2_CORE_RUNTIME_PM;
 	msm_host->mmc->caps2 |= MMC_CAP2_PACKED_WR;
@@ -3556,17 +3554,11 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 				MMC_CAP2_DETECT_ON_ERR);
 	msm_host->mmc->caps2 |= MMC_CAP2_CACHE_CTRL;
 	msm_host->mmc->caps2 |= MMC_CAP2_POWEROFF_NOTIFY;
-#ifndef CONFIG_MACH_LGE
 	msm_host->mmc->caps2 |= MMC_CAP2_CLK_SCALE;
-#endif
 	msm_host->mmc->caps2 |= MMC_CAP2_STOP_REQUEST;
 	msm_host->mmc->caps2 |= MMC_CAP2_ASYNC_SDIO_IRQ_4BIT_MODE;
 	msm_host->mmc->pm_caps |= MMC_PM_KEEP_POWER | MMC_PM_WAKE_SDIO_IRQ;
 	msm_host->mmc->caps2 |= MMC_CAP2_CORE_PM;
-
-#if defined (CONFIG_LGE_MMC_BKOPS_ENABLE) && defined (CONFIG_MMC_SDHCI_MSM)
-	msm_host->mmc->caps2 |= MMC_CAP2_INIT_BKOPS;
-#endif
 
 	if (msm_host->pdata->nonremovable)
 		msm_host->mmc->caps |= MMC_CAP_NONREMOVABLE;
@@ -3583,15 +3575,6 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 		 * weird/inconsistent state resulting in flood of interrupts.
 		 */
 		sdhci_msm_setup_pins(msm_host->pdata, true);
-
-		/*
-		*  SDCARD detection pin with TVS diode or varistor need some delay right after the gpio setup for signal stable
-		*  detection INT. before SD host initialization may cause TZ crash at boot stage.
-		*  smtk.kim@lge.com by QCT recommendation.
-		*/
-#if defined(CONFIG_MACH_MSM8916_YG_SKT_KR) || defined(CONFIG_MACH_MSM8916_C100N_KR) || defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM)
-		mdelay(10);
-#endif
 
 		ret = mmc_gpio_request_cd(msm_host->mmc,
 				msm_host->pdata->status_gpio);

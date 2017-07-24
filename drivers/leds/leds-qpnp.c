@@ -26,12 +26,6 @@
 #include <linux/delay.h>
 #include <linux/regulator/consumer.h>
 #include <linux/delay.h>
-#include <linux/hrtimer.h>
-#include <soc/qcom/lge/board_lge.h>
-#ifdef CONFIG_LGE_PM_LED_MSM_GPIO_CONTROL_LED
-#include <linux/gpio.h>
-#include <linux/of_gpio.h>
-#endif
 
 #define WLED_MOD_EN_REG(base, n)	(base + 0x60 + n*0x10)
 #define WLED_IDAC_DLY_REG(base, n)	(WLED_MOD_EN_REG(base, n) + 0x01)
@@ -560,14 +554,6 @@ struct qpnp_led_data {
 	bool			default_on;
 	bool                    in_order_command_processing;
 	int			turn_off_delay_ms;
-#if defined(CONFIG_LEDS_PM8916)
-	u8 ptrn_id;
-	int charge_current;
-	struct hrtimer led_on_timer;
-#endif
-#ifdef CONFIG_LGE_PM_LED_MSM_GPIO_CONTROL_LED
-	int led_ctrl_pin_gpio;
-#endif
 };
 
 static DEFINE_MUTEX(flash_lock);
@@ -575,75 +561,6 @@ static struct pwm_device *kpdbl_master;
 static u32 kpdbl_master_period_us;
 DECLARE_BITMAP(kpdbl_leds_in_use, NUM_KPDBL_LEDS);
 static bool is_kpdbl_master_turn_on;
-
-#if defined(CONFIG_LEDS_PM8916)
-
-/**
-* This pattern is written by light.c in sys/class/leds/red/pattern_id.
-* Defined in android/vendor/lge/frameworks/base/core/java/com/lge/systemservice/core/LGLedRecord.java
-*/
-enum LG_LED_FW_PATTERN {
-	ID_STOP,
-	ID_POWER_ON,
-	ID_LCD_ON,
-	ID_CHARGING,
-	ID_CHARGING_FULL,
-	ID_CALENDAR_REMIND,
-	ID_POWER_OFF,
-	ID_MISSED_NOTI,
-	ID_ALARM,
-	ID_CALL_01,
-	ID_SOUND_RECORDING = 34,
-	ID_URGENT_CALL_MISSED_NOTI = 37,
-	ID_INCOMING_CALL,
-	ID_MISSED_NOTI_ONCE,
-	ID_URGENT_INCOMING_CALL = 48,
-	ID_KNOCK_ON = 103,
-	ID_FAILED_CHECKPASSWORD,
-	ID_AAT_LED_TEST = 127,
-};
-
-/**
-* This pattern is defined for kernel to call pwm.
-* If new pattern is need, add in heare and lg_led_patterns array.
-*/
-enum LG_LED_PTRNS {
-	ID_LED_OFF,					/* off */
-	ID_LED_ON_ALWAYS,				/* always on */
-	ID_LED_ON_500ms_ONLY,				/* 500ms on =>  off  X 1 */
-#if defined(CONFIG_MACH_MSM8916_C100N_KR) || defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM)
-	ID_LED_ON_160ms_IN_12000ms,			/* 5920ms off => 160ms on => 5920ms off repeat */
-#else
-	ID_LED_ON_160ms_IN_4000ms,			/* 1920ms off => 160ms on => 1920ms off repeat */
-#endif
-	ID_LED_ON_700ms_IN_2000ms,			/* 650ms off => 700ms on => 650ms off repeat */
-	ID_LED_ON_HALF_BRIGHTNESS,			/* always on with half brightness */
-	ID_LED_ON_500ms_IN_1000ms,			/* 250ms off => 500ms on => 250ms off repeat */
-	ID_LED_ON_1000ms_IN_15000ms,			/* 15000ms off => 1000ms on => 15000ms off repeat */
-	ID_LED_MAX,
-};
-
-struct patrn_data {
-	u8 brightness_val;
-	u32 period_in_msec;
-	u8 repeat;
-};
-
-static const struct patrn_data lg_led_patterns[ID_LED_MAX] = {
-	[ID_LED_OFF] = 					{.brightness_val = 0, .period_in_msec = 1000, .repeat = 0},
-	[ID_LED_ON_ALWAYS] = 				{.brightness_val = 255, .period_in_msec = 1000, .repeat = 0},
-	[ID_LED_ON_500ms_ONLY] = 			{.brightness_val = 255, .period_in_msec = 500, .repeat = 1},
-#if defined(CONFIG_MACH_MSM8916_C100N_KR) || defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM)
-	[ID_LED_ON_160ms_IN_12000ms] =			{.brightness_val = 10, .period_in_msec = 12000, .repeat = 0},
-#else
-	[ID_LED_ON_160ms_IN_4000ms] =			{.brightness_val = 10, .period_in_msec = 4000, .repeat = 0},
-#endif
-	[ID_LED_ON_700ms_IN_2000ms] =			{.brightness_val = 89, .period_in_msec = 2000, .repeat = 0},
-	[ID_LED_ON_HALF_BRIGHTNESS] = 			{.brightness_val = 255, .period_in_msec = 1000, .repeat = 0},
-	[ID_LED_ON_500ms_IN_1000ms] = 			{.brightness_val = 127, .period_in_msec = 1000, .repeat = 0},
-	[ID_LED_ON_1000ms_IN_15000ms] =			{.brightness_val = 17, .period_in_msec = 15000, .repeat = 0},
-};
-#endif
 
 static int
 qpnp_led_masked_write(struct qpnp_led_data *led, u16 addr, u8 mask, u8 val)
@@ -1879,47 +1796,12 @@ static int qpnp_rgb_set(struct qpnp_led_data *led)
 	return 0;
 }
 
-#ifdef CONFIG_LGE_PM_LED_MSM_GPIO_CONTROL_LED
-static void msm_gpio_led_set(struct led_classdev *led_cdev,
-		                enum led_brightness value)
-{
-	struct qpnp_led_data *led = container_of(led_cdev, struct qpnp_led_data, cdev);
-	int brightness = value;
-
-	if(brightness > 255)
-		brightness = 255;
-
-	if(brightness < 0)
-		brightness = 0;
-
-	if (gpio_is_valid(led->led_ctrl_pin_gpio)) {
-		if(brightness) {
-			gpio_direction_output(led->led_ctrl_pin_gpio, 1);
-		} else {
-			gpio_direction_output(led->led_ctrl_pin_gpio, 0);
-		}
-
-		led->cdev.brightness = value;
-	} else {
-			dev_err(&led->spmi_dev->dev, "Invalid gpio!\n");
-	}
-}
-
-static enum led_brightness msm_gpio_led_get(struct led_classdev *led_cdev)
-{
-	struct qpnp_led_data *led = container_of(led_cdev, struct qpnp_led_data, cdev);
-
-	return led->cdev.brightness;
-}
-#endif
-
 static void qpnp_led_set(struct led_classdev *led_cdev,
 				enum led_brightness value)
 {
 	struct qpnp_led_data *led;
 
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
-
 	if (value < LED_OFF) {
 		dev_err(&led->spmi_dev->dev, "Invalid brightness value\n");
 		return;
@@ -2819,304 +2701,6 @@ static DEVICE_ATTR(lut_flags, 0664, NULL, lut_flags_store);
 static DEVICE_ATTR(duty_pcts, 0664, NULL, duty_pcts_store);
 static DEVICE_ATTR(blink, 0664, NULL, blink_store);
 
-#if defined(CONFIG_LEDS_PM8916)
-static ssize_t pattern_id_store(struct device *dev,
-	struct device_attribute *attr,
-	const char *buf, size_t count)
-{
-	struct qpnp_led_data *led;
-	u8 pattern_id;
-	u8 val;
-	u8 previous_brightness = 0;
-	u32 previous_pwm_us = 0;
-	u32 repeat_ms = 0;
-	struct pwm_config_data *pwm_cfg;
-	struct led_classdev *led_cdev = dev_get_drvdata(dev);
-	ssize_t ret = -EINVAL;
-	bool is_timer_active = false;
-
-	ret = kstrtou8(buf, 10, &pattern_id);
-	if (ret)
-		return -EINVAL;
-	led = container_of(led_cdev, struct qpnp_led_data, cdev);
-
-	pr_info("current pattern : %d, brightness : %d, period : %d\n",
-					led->ptrn_id, lg_led_patterns[led->ptrn_id].brightness_val, lg_led_patterns[led->ptrn_id].period_in_msec);
-
-	switch (pattern_id) {
-#if defined(CONFIG_MACH_MSM8916_STYLUSC_SPR_US) || defined(CONFIG_MACH_MSM8916_C90NAS_SPR_US) || defined(CONFIG_MACH_MSM8916_PH1_VZW) || defined(CONFIG_MACH_MSM8916_PH1_SPR_US) || defined(CONFIG_MACH_MSM8916_PH1_CRK_US) || defined(CONFIG_MACH_MSM8916_PH1_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_PH1_KR)
-		case ID_MISSED_NOTI_ONCE:
-		case ID_LCD_ON:
-		case ID_FAILED_CHECKPASSWORD:
-			led->ptrn_id = ID_LED_ON_500ms_ONLY;
-			break;
-		case ID_MISSED_NOTI:
-		case ID_URGENT_CALL_MISSED_NOTI:
-		case ID_ALARM:
-		case ID_CALENDAR_REMIND:
-			led->ptrn_id = ID_LED_ON_1000ms_IN_15000ms;
-			break;
-		case ID_CALL_01:
-		case ID_INCOMING_CALL:
-		case ID_URGENT_INCOMING_CALL:
-		case ID_POWER_OFF:
-		case ID_POWER_ON:
-			led->ptrn_id = ID_LED_ON_ALWAYS;
-			break;
-		case ID_CHARGING:
-			led->ptrn_id = ID_LED_ON_HALF_BRIGHTNESS;
-			break;
-		case ID_SOUND_RECORDING:
-			led->ptrn_id = ID_LED_ON_700ms_IN_2000ms;
-			break;
-		case ID_CHARGING_FULL:
-		case ID_STOP:
-			led->ptrn_id = ID_LED_OFF;
-			is_timer_active = (led->led_on_timer.state != HRTIMER_STATE_INACTIVE)? true: false;
-			if (is_timer_active)
-				hrtimer_cancel(&led->led_on_timer);
-			break;
-		case ID_AAT_LED_TEST:
-			led->ptrn_id = ID_LED_ON_500ms_IN_1000ms;
-			break;
-#else
-		case ID_CALENDAR_REMIND:
-		case ID_MISSED_NOTI_ONCE:
-		case ID_LCD_ON:
-		case ID_FAILED_CHECKPASSWORD:
-			led->ptrn_id = ID_LED_ON_500ms_ONLY;
-			break;
-		case ID_MISSED_NOTI:
-		case ID_URGENT_CALL_MISSED_NOTI:
-#if defined(CONFIG_MACH_MSM8916_C100N_KR) || defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM)
-			led->ptrn_id = ID_LED_ON_160ms_IN_12000ms;
-#else
-			led->ptrn_id = ID_LED_ON_160ms_IN_4000ms;
-#endif
-			break;
-		case ID_CALL_01:
-		case ID_INCOMING_CALL:
-		case ID_URGENT_INCOMING_CALL:
-		case ID_ALARM:
-		case ID_POWER_OFF:
-		case ID_POWER_ON:
-			led->ptrn_id = ID_LED_ON_ALWAYS;
-			break;
-		case ID_CHARGING:
-			led->ptrn_id = ID_LED_ON_HALF_BRIGHTNESS;
-			break;
-		case ID_SOUND_RECORDING:
-			led->ptrn_id = ID_LED_ON_700ms_IN_2000ms;
-			break;
-		case ID_CHARGING_FULL:
-		case ID_STOP:
-			led->ptrn_id = ID_LED_OFF;
-			is_timer_active = (led->led_on_timer.state != HRTIMER_STATE_INACTIVE)? true: false;
-			if (is_timer_active)
-				hrtimer_cancel(&led->led_on_timer);
-			break;
-		case ID_AAT_LED_TEST:
-			led->ptrn_id = ID_LED_ON_500ms_IN_1000ms;
-			break;
-#endif
-		default:
-			pr_err("Can't find any pattern with %d\n", pattern_id);
-			return count;
-	}
-
-	pr_info("pattern_id : %d, current pattern : %d, brightness : %d, period : %d\n", pattern_id,
-				led->ptrn_id, lg_led_patterns[led->ptrn_id].brightness_val, lg_led_patterns[led->ptrn_id].period_in_msec);
-
-	pwm_cfg = led->mpp_cfg->pwm_cfg;
-	pwm_cfg->pwm_period_us = lg_led_patterns[led->ptrn_id].period_in_msec * USEC_PER_MSEC;
-	led->cdev.brightness = lg_led_patterns[led->ptrn_id].brightness_val;
-
-	if (led->ptrn_id == ID_LED_ON_HALF_BRIGHTNESS)
-		val = (led->charge_current / LED_MPP_CURRENT_PER_SETTING) -1;
-	else
-		val = (led->mpp_cfg->current_setting / LED_MPP_CURRENT_PER_SETTING) -1;
-	if (val < 0)
-		val = 0;
-	ret = qpnp_led_masked_write(led, LED_MPP_SINK_CTRL(led->base),
-		LED_MPP_SINK_MASK, val);
-	if (ret) {
-		dev_err(&led->spmi_dev->dev,
-			"Failed to write sink control reg\n");
-		return -EINVAL;
-	}
-
-	pwm_free(pwm_cfg->pwm_dev);
-	ret = qpnp_pwm_init(pwm_cfg, led->spmi_dev, led->cdev.name);
-	if (ret) {
-		pwm_cfg->pwm_period_us = previous_pwm_us;
-		pwm_free(pwm_cfg->pwm_dev);
-		qpnp_pwm_init(pwm_cfg, led->spmi_dev, led->cdev.name);
-		qpnp_led_set(&led->cdev, previous_brightness);
-		dev_err(&led->spmi_dev->dev,
-			"Failed to initialize pwm with new pwm_us value\n");
-		return -EINVAL;
-	}
-	if (lg_led_patterns[led->ptrn_id].repeat>0) {
-		hrtimer_cancel(&led->led_on_timer);
-		repeat_ms = lg_led_patterns[led->ptrn_id].period_in_msec * (lg_led_patterns[led->ptrn_id].repeat + 1);
-		pr_info("repeat : %d, repeat_ms : %d\n",lg_led_patterns[led->ptrn_id].repeat,repeat_ms);
-		hrtimer_start(&led->led_on_timer,ktime_set(repeat_ms / 1000, (repeat_ms % 1000) * 1000000), HRTIMER_MODE_REL);
-	}
-	qpnp_led_set(&led->cdev, led->cdev.brightness);
-	if (is_timer_active)
-		msleep(80);
-	return count;
-}
-
-static ssize_t pattern_id_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct qpnp_led_data *led;
-	struct led_classdev *led_cdev = dev_get_drvdata(dev);
-
-	led = container_of(led_cdev, struct qpnp_led_data, cdev);
-	return sprintf(buf,"%d\n",led->ptrn_id);
-}
-
-static u32 led_on_ms;
-static ssize_t time_store(struct device *dev,
-	struct device_attribute *attr,
-	const char *buf, size_t count)
-{
-	struct qpnp_led_data *led;
-	u8 previous_brightness;
-	u32 previous_pwm_us;
-	struct pwm_config_data *pwm_cfg;
-	struct led_classdev *led_cdev = dev_get_drvdata(dev);
-	ssize_t ret = -EINVAL;
-
-	ret = kstrtou32(buf, 10, &led_on_ms);
-	if (ret)
-		return -EINVAL;
-	led = container_of(led_cdev, struct qpnp_led_data, cdev);
-	pwm_cfg = led->mpp_cfg->pwm_cfg;
-
-	previous_pwm_us = pwm_cfg->pwm_period_us;
-	previous_brightness = (u8)led->cdev.brightness;
-	//pr_info("Previous Period = %u Brightness = %d \n",previous_pwm_us,previous_brightness);
-
-	if (previous_brightness!=0)
-		return -EINVAL;
-
-	led->cdev.brightness = led->cdev.max_brightness;
-	pwm_cfg->pwm_period_us = 1 * USEC_PER_MSEC;
-
-	pwm_free(pwm_cfg->pwm_dev);
-	ret = qpnp_pwm_init(pwm_cfg, led->spmi_dev, led->cdev.name);
-	if (ret) {
-		pwm_cfg->pwm_period_us = previous_pwm_us;
-		pwm_free(pwm_cfg->pwm_dev);
-		qpnp_pwm_init(pwm_cfg, led->spmi_dev, led->cdev.name);
-		qpnp_led_set(&led->cdev, previous_brightness);
-		dev_err(&led->spmi_dev->dev,
-			"Failed to initialize pwm with new pwm_us value\n");
-		return -EINVAL;
-	}
-	hrtimer_cancel(&led->led_on_timer);
-	hrtimer_start(&led->led_on_timer,ktime_set(led_on_ms / 1000, (led_on_ms % 1000) * 1000000),HRTIMER_MODE_REL);
-	qpnp_led_set(&led->cdev, led->cdev.brightness);
-	led_on_ms = 0;
-	return count;
-
-}
-
-static u32 onms, offms;
-static ssize_t time_on_off_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	return sprintf(buf,"on : %d off : %d\n",onms, offms);
-}
-
-static ssize_t time_on_off_store(struct device *dev,
-	struct device_attribute *attr,
-	const char *buf, size_t count)
-{
-	struct qpnp_led_data *led;
-	u8 previous_brightness;
-	u32 previous_pwm_us, tot_ms;
-
-	struct pwm_config_data *pwm_cfg;
-	struct led_classdev *led_cdev = dev_get_drvdata(dev);
-	ssize_t ret = -EINVAL;
-	ret = sscanf(buf, "%d,%d", &onms, &offms);
-	if (ret!=2) {
-		pr_err("bad parameter\n");
-		return -EINVAL;
-	}
-
-	tot_ms = onms + offms;
-	if (tot_ms > 15000 || tot_ms <0) {
-		pr_err("pwm period not supported\n");
-		return -EINVAL;
-	}
-
-	led = container_of(led_cdev, struct qpnp_led_data, cdev);
-	pwm_cfg = led->mpp_cfg->pwm_cfg;
-
-	previous_pwm_us = pwm_cfg->pwm_period_us;
-	previous_brightness = (u8)led->cdev.brightness;
-	//pr_info("Previous Period = %u Brightness = %d \n",previous_pwm_us,previous_brightness);
-
-	if (tot_ms == 0) {
-		pwm_cfg->pwm_period_us = 0;
-		led->cdev.brightness = 0;
-	}
-	else {
-		pwm_cfg->pwm_period_us = tot_ms * USEC_PER_MSEC;
-		led->cdev.brightness = (u8)((onms * 255)/tot_ms);
-	}
-	if (previous_brightness!=0)
-		return -EINVAL;
-
-	pr_info("Current Period = %u Brightness = %d \n",pwm_cfg->pwm_period_us,led->cdev.brightness);
-	pwm_free(pwm_cfg->pwm_dev);
-	ret = qpnp_pwm_init(pwm_cfg, led->spmi_dev, led->cdev.name);
-	if (ret) {
-		pwm_cfg->pwm_period_us = previous_pwm_us;
-		pwm_free(pwm_cfg->pwm_dev);
-		qpnp_pwm_init(pwm_cfg, led->spmi_dev, led->cdev.name);
-		qpnp_led_set(&led->cdev, previous_brightness);
-		dev_err(&led->spmi_dev->dev,
-			"Failed to initialize pwm with new pwm_us value\n");
-		return -EINVAL;
-	}
-	qpnp_led_set(&led->cdev, led->cdev.brightness);
-	return count;
-
-}
-static ssize_t time_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	return sprintf(buf,"%d\n",led_on_ms);
-}
-
-static enum hrtimer_restart led_on_timer_func(struct hrtimer *timer)
-{
-	struct qpnp_led_data *led = container_of(timer, struct qpnp_led_data, led_on_timer);
-	qpnp_led_set(&led->cdev,LED_OFF);
-	return HRTIMER_NORESTART;
-}
-
-static DEVICE_ATTR(pattern_id, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, pattern_id_show, pattern_id_store);
-static DEVICE_ATTR(timed, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, time_show, time_store);
-static DEVICE_ATTR(time_on_off, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, time_on_off_show, time_on_off_store);
-
-static struct attribute *red_attrs[] = {
-	&dev_attr_pattern_id.attr,
-	&dev_attr_timed.attr,
-	&dev_attr_time_on_off.attr,
-	NULL
-};
-static const struct attribute_group red_attr_group = {
-	.attrs = red_attrs,
-};
-#endif
-
 static struct attribute *led_attrs[] = {
 	&dev_attr_led_mode.attr,
 	&dev_attr_strobe.attr,
@@ -3511,11 +3095,7 @@ static int qpnp_get_common_configs(struct qpnp_led_data *led,
 			led->default_on = true;
 	} else if (rc != -EINVAL)
 		return rc;
-#if defined(CONFIG_LEDS_PM8916)
-	pr_info("lge_get_boot_mode : %d\n", lge_get_boot_mode());
-	if (lge_get_boot_mode() != LGE_BOOT_MODE_NORMAL)
-		led->default_on = false;
-#endif
+
 	led->turn_off_delay_ms = 0;
 	rc = of_property_read_u32(node, "qcom,turn-off-delay-ms", &val);
 	if (!rc)
@@ -4167,16 +3747,6 @@ static int qpnp_get_config_mpp(struct qpnp_led_data *led,
 	} else if (rc != -EINVAL)
 		goto err_config_mpp;
 
-#if defined(CONFIG_LEDS_PM8916)
-			rc = of_property_read_u32(node, "charge-current",
-				&led->charge_current);
-			if (rc < 0) {
-				dev_err(&led->spmi_dev->dev,
-					"Failure reading charge_current, rc =  %d\n", rc);
-				led->charge_current = led->mpp_cfg->current_setting;
-			}
-#endif
-
 	led->mpp_cfg->source_sel = LED_MPP_SOURCE_SEL_DEFAULT;
 	rc = of_property_read_u32(node, "qcom,source-sel", &val);
 	if (!rc)
@@ -4300,10 +3870,6 @@ static int qpnp_leds_probe(struct spmi_device *spmi)
 	while ((temp = of_get_next_child(node, temp)))
 		num_leds++;
 
-#ifdef CONFIG_LGE_PM_LED_MSM_GPIO_CONTROL_LED
-	num_leds++;
-#endif
-
 	if (!num_leds)
 		return -ECHILD;
 
@@ -4313,21 +3879,6 @@ static int qpnp_leds_probe(struct spmi_device *spmi)
 		dev_err(&spmi->dev, "Unable to allocate memory\n");
 		return -ENOMEM;
 	}
-
-#ifdef CONFIG_LGE_PM_LED_MSM_GPIO_CONTROL_LED
-	led = &led_array[parsed_leds];
-	led->num_leds = num_leds;
-	led->spmi_dev = spmi;
-	led->cdev.name = "red";
-	led->cdev.max_brightness = 0;
-	led->cdev.default_trigger = "none";
-	led->cdev.brightness_set = msm_gpio_led_set;
-	led->cdev.brightness_get = msm_gpio_led_get;
-	led->led_ctrl_pin_gpio = of_get_named_gpio_flags(node, "qcom,led_ctrl_pin_gpio", 0, NULL);
-	rc = led_classdev_register(&spmi->dev, &led->cdev);
-	rc = sysfs_create_group(&led->cdev.dev->kobj, &blink_attr_group);
-	parsed_leds++;
-#endif
 
 	for_each_child_of_node(node, temp) {
 		led = &led_array[parsed_leds];
@@ -4486,23 +4037,12 @@ static int qpnp_leds_probe(struct spmi_device *spmi)
 		if (led->id == QPNP_ID_LED_MPP) {
 			if (!led->mpp_cfg->pwm_cfg)
 				break;
-#if defined(CONFIG_LEDS_PM8916)
-			led->ptrn_id = 0;
-			hrtimer_init(&led->led_on_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-			led->led_on_timer.function = led_on_timer_func;
-#endif
 			if (led->mpp_cfg->pwm_cfg->mode == PWM_MODE) {
 				rc = sysfs_create_group(&led->cdev.dev->kobj,
 					&pwm_attr_group);
 				if (rc)
 					goto fail_id_check;
 			}
-#if defined(CONFIG_LEDS_PM8916)
-			rc = sysfs_create_group(&led->cdev.dev->kobj,
-				&red_attr_group);
-			if (rc)
-				goto fail_id_check;
-#endif
 			if (led->mpp_cfg->pwm_cfg->use_blink) {
 				rc = sysfs_create_group(&led->cdev.dev->kobj,
 					&blink_attr_group);
@@ -4644,9 +4184,6 @@ static int qpnp_leds_remove(struct spmi_device *spmi)
 		case QPNP_ID_LED_MPP:
 			if (!led_array[i].mpp_cfg->pwm_cfg)
 				break;
-#ifdef CONFIG_LEDS_PM8916
-			hrtimer_cancel(&led_array[i].led_on_timer);
-#endif
 			if (led_array[i].mpp_cfg->pwm_cfg->mode == PWM_MODE)
 				sysfs_remove_group(&led_array[i].cdev.dev->\
 					kobj, &pwm_attr_group);

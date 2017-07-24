@@ -71,15 +71,9 @@ zinstall install: vmlinux
 %.dtb: scripts
 	$(Q)$(MAKE) $(build)=$(boot)/dts $(boot)/dts/$@
 
-# Build LGE dts files only
-ifeq ($(CONFIG_MACH_LGE),y)
-dtbs: scripts
-	$(Q)$(MAKE) $(build)=$(boot)/dts/lge dtbs
-else
 dtbs: scripts
 	$(Q)$(MAKE) $(build)=$(boot)/dts dtbs
 	$(Q)$(MAKE) $(build)=$(boot)/dts/qcom dtbs
-endif
 
 PHONY += vdso_install
 vdso_install:

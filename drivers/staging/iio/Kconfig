@@ -16,11 +16,6 @@ source "drivers/staging/iio/magnetometer/Kconfig"
 source "drivers/staging/iio/meter/Kconfig"
 source "drivers/staging/iio/resolver/Kconfig"
 source "drivers/staging/iio/trigger/Kconfig"
-#  LGE_CHANGE_S
-# Comment : for invensense iio driver
-# 2014-08-05, chaesun.leem
-source "drivers/staging/iio/inv_mpu/Kconfig"
-# /* LGE_CHANGE_E */
 
 config IIO_DUMMY_EVGEN
        tristate

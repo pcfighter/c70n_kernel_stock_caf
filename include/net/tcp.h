@@ -98,21 +98,14 @@ extern void tcp_time_wait(struct sock *sk, int state, int timeo);
 				 * 15 is ~13-30min depending on RTO.
 				 */
 
-/* 2012-01-17 jk.soh@lge.com LGP_DATA_TCPIP_TCP_SYN_RETRY_CONFIG_UPLUS [START]*/
-//2014.01.15 bongsook.jeong@lge.com Feature is changed with 'android\kernel\arch\arm\configs\xxx_defconfig' and 'android\kernel\net\ipv4\Kconfig'
-#ifdef CONFIG_LGP_DATA_TCPIP_TCP_SYN_RETRY_CONFIG_UPLUS
-#define TCP_SYN_RETRIES  4
-#else
-#define TCP_SYN_RETRIES  6  /* This is how many retries are done
-                             * when active opening a connection.
-                             * RFC1122 says the minimum retry MUST
-                             * be at least 180secs.  Nevertheless
-                             * this value is corresponding to
-                             * 63secs of retransmission with the
-                             * current initial RTO.
-                             */
-#endif
-/* 2012-01-17 jk.soh@lge.com LGP_DATA_TCPIP_TCP_SYN_RETRY_CONFIG_UPLUS [END]*/
+#define TCP_SYN_RETRIES	 6	/* This is how many retries are done
+				 * when active opening a connection.
+				 * RFC1122 says the minimum retry MUST
+				 * be at least 180secs.  Nevertheless
+				 * this value is corresponding to
+				 * 63secs of retransmission with the
+				 * current initial RTO.
+				 */
 
 #define TCP_SYNACK_RETRIES 5	/* This is how may retries are done
 				 * when passive opening a connection.
@@ -1413,6 +1406,8 @@ static inline void tcp_check_send_head(struct sock *sk, struct sk_buff *skb_unli
 {
 	if (sk->sk_send_head == skb_unlinked)
 		sk->sk_send_head = NULL;
+	if (tcp_sk(sk)->highest_sack == skb_unlinked)
+		tcp_sk(sk)->highest_sack = NULL;
 }
 
 static inline void tcp_init_send_head(struct sock *sk)

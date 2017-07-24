@@ -253,6 +253,7 @@ config SND_SOC_MSM8X16
 	select SND_SOC_MSM_STUB
 	select SND_SOC_MSM_HOSTLESS_PCM
 	select SND_SOC_MSM8X16_WCD
+	select SND_SOC_WSA881X
 	select SLIMBUS
 	select MFD_CORE
 	select SND_DYNAMIC_MINORS
@@ -278,6 +279,7 @@ config SND_SOC_MSM8909
 	select SND_SOC_MSM_STUB
 	select SND_SOC_MSM_HOSTLESS_PCM
 	select SND_SOC_MSM8909_WCD
+	select SND_SOC_WSA881X
 	select SLIMBUS
 	select MFD_CORE
 	select SND_DYNAMIC_MINORS
@@ -286,6 +288,7 @@ config SND_SOC_MSM8909
 	select DOLBY_DAP
 	select MSM_QDSP6_APRV3
 	select MSM_QDSP6V2_CODECS
+	select SND_SOC_CPE
 	select SND_HWDEP
 	select DOLBY_DS2
 	help
@@ -305,42 +308,6 @@ config SND_SOC_MDM9630
 	select SND_DYNAMIC_MINORS
 	help
 	 To add support for SoC audio on MDM9630 boards.
-
-config SND_LGE_EFFECT
-	bool "LGE DSP EFFECT"
-	default n
-	help
-	 To support LGE DSP EFFECT
-
-config SND_LGE_NORMALIZER
-	bool "LGE DSP NORMALIZER"
-	default n
-	help
-	 To support LGE DSP NORMALIZER
-
-config SND_LGE_MABL
-	bool "LGE DSP MABL"
-	default n
-	help
-	 To support LGE DSP MABL
-
-config LGE_SW_IRRC_MUTE_SPEAKER
-	bool "LGE SW IRRC MUTE SPEAKER"
-	default n
-	help
-	 To support mute stereo speaker for msm8939
-
-config SND_LGE_USE_EXTERNAL_CODEC
-	bool "SND_LGE_USE_EXTERNAL_CODEC"
-	default n
-	help
-	 To support SELF-D MIC Test for msm8939 using external codec
-
-config SND_SOC_TPS61256A_BOOST
-	bool "SND_SOC_TPS61256A_BOOST"
-	default n
-	help
-	 To support 5V external boost TPS61256A
 
 config SND_SOC_MSM8994
 	tristate "SoC Machine driver for MSM8994 boards"
@@ -383,17 +350,4 @@ config SND_SOC_MSMZIRC
 	 interfaces with DSP, also it will enable
 	 the machine drivers and the corresponding
 	 DAI-links.
-
-config SND_LGE_USE_PHONE_MEMO
-        bool "LGE PHONE MEMO"
-        default n
-        help
-         To support LGE PHONE MEMO TX MUTE
-
-config SND_LGE_INCALL_RECORD_TUNE
-	bool "INCALL_RECORD_TUNE"
-	default n
-	help
-	 To support Incall_record_tune.
-
 endmenu

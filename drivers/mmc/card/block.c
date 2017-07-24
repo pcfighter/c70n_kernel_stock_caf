@@ -48,10 +48,6 @@
 
 #include <asm/uaccess.h>
 
-#if defined(CONFIG_LGE_MMC_DYNAMIC_LOG)
-#include <linux/mmc/debug_log.h>
-#endif
-
 #include "queue.h"
 
 MODULE_ALIAS("mmc:block");
@@ -681,6 +677,15 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	idata = mmc_blk_ioctl_copy_from_user(ic_ptr);
 	if (IS_ERR_OR_NULL(idata))
 		return PTR_ERR(idata);
+	if (idata->ic.postsleep_max_us < idata->ic.postsleep_min_us) {
+		pr_err("%s: min value: %u must not be greater than max value: %u\n",
+			__func__, idata->ic.postsleep_min_us,
+			idata->ic.postsleep_max_us);
+		WARN_ON(1);
+		err = -EPERM;
+		goto cmd_err;
+	}
+
 	md = mmc_blk_get(bdev->bd_disk);
 	if (!md) {
 		err = -EINVAL;
@@ -696,6 +701,14 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	cmd.opcode = idata->ic.opcode;
 	cmd.arg = idata->ic.arg;
 	cmd.flags = idata->ic.flags;
+
+	if (idata->ic.postsleep_max_us < idata->ic.postsleep_min_us) {
+		pr_err("%s: min value: %u must not be greater than max value: %u\n",
+			__func__, idata->ic.postsleep_min_us,
+			idata->ic.postsleep_max_us);
+		WARN_ON(1);
+		return -EPERM;
+	}
 
 	if (idata->buf_bytes) {
 		data.sg = &sg;
@@ -738,10 +751,9 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	mmc_rpm_hold(card->host, &card->dev);
 	mmc_claim_host(card->host);
 
-#ifdef CONFIG_ARCH_MSM
-	if (card->ext_csd.bkops_en)
+	if (mmc_card_get_bkops_en_manual(card))
 		mmc_stop_bkops(card);
-#endif
+
 	err = mmc_blk_part_switch(card, md);
 	if (err)
 		goto cmd_rel_host;
@@ -884,10 +896,9 @@ static int mmc_blk_ioctl_rpmb_cmd(struct block_device *bdev,
 	mmc_rpm_hold(card->host, &card->dev);
 	mmc_claim_host(card->host);
 
-#ifdef CONFIG_ARCH_MSM
-	if (card->ext_csd.bkops_en)
+	if (mmc_card_get_bkops_en_manual(card))
 		mmc_stop_bkops(card);
-#endif
+
 	err = mmc_blk_part_switch(card, md);
 	if (err)
 		goto cmd_rel_host;
@@ -1330,20 +1341,6 @@ static int mmc_blk_reset(struct mmc_blk_data *md, struct mmc_host *host,
 
 	md->reset_done |= type;
 	err = mmc_hw_reset(host);
-/* LGE_CHANGE_S
- * Author : D3-5T-FS@lge.com
- * Change : eMMC can recover itself, but if it fails during re-init, recover routine does not activated. (eMMC is not accessible)
- */
-#if defined (CONFIG_LGE_MMC_RESET_IF_HANG)
-    /* in case that eMMC failed to re-initialize, retry five times and crash if it is eMMC. */
-    if (err == -ETIMEDOUT && host->caps & MMC_CAP_NONREMOVABLE) /* Only for eMMC (NONREMOVABLE) */
-    {
-        err = mmc_hw_reset(host);
-        pr_info("%s:%s: retry mmc_blk_reset() %d\n",
-                    mmc_hostname(host), __func__, err);
-    }
-#endif
-
 	if (err && err != -EOPNOTSUPP) {
 		/* We failed to reset so we need to abort the request */
 		pr_err("%s: %s: failed to reset %d\n", mmc_hostname(host),
@@ -1365,17 +1362,6 @@ static int mmc_blk_reset(struct mmc_blk_data *md, struct mmc_host *host,
 			return -ENODEV;
 		}
 	}
-
-/* LGE_CHANGE_S
- * Author : bohyun.jung, D3-5T-FS@lge.com
- * Change : Log eMMC CMD/ARG/RESP if mmc_blk_reset() fails for eMMC.
- */
-#if defined(CONFIG_LGE_MMC_DEBUG)
-    /* Only for eMMC (NONREMOVABLE) */
-    if (host->card && host->card->type == MMC_TYPE_MMC && (host->caps & MMC_CAP_NONREMOVABLE))
-        print_mmc_cmd_info(host);
-#endif
-
 	return err;
 }
 
@@ -1399,7 +1385,7 @@ static int mmc_blk_issue_discard_rq(struct mmc_queue *mq, struct request *req)
 	from = blk_rq_pos(req);
 	nr = blk_rq_sectors(req);
 
-	if (card->ext_csd.bkops_en)
+	if (mmc_card_get_bkops_en_manual(card))
 		card->bkops_info.sectors_changed += blk_rq_sectors(req);
 
 	if (mmc_can_discard(card))
@@ -1528,6 +1514,7 @@ static int mmc_blk_issue_flush(struct mmc_queue *mq, struct request *req)
 				req->rq_disk->disk_name, __func__);
 		ret = -EIO;
 	}
+
 	blk_end_request_all(req, ret);
 exit:
 	return ret ? 0 : 1;
@@ -2352,7 +2339,7 @@ static u8 mmc_blk_prep_packed_list(struct mmc_queue *mq, struct request *req)
 
 		if (rq_data_dir(next) == WRITE) {
 			mq->num_of_potential_packed_wr_reqs++;
-			if (card->ext_csd.bkops_en)
+			if (mmc_card_get_bkops_en_manual(card))
 				card->bkops_info.sectors_changed +=
 					blk_rq_sectors(next);
 		}
@@ -2524,18 +2511,11 @@ static int mmc_blk_end_packed_req(struct mmc_queue_req *mq_rq)
 {
 	struct request *prq;
 	struct mmc_packed *packed = mq_rq->packed;
-#if 0 //QCT original
 	int idx = packed->idx_failure, i = 0;
 	int ret = 0;
 
 	BUG_ON(!packed);
-#else
-	int idx, i = 0;
-	int ret = 0;
 
-	BUG_ON(!packed);
-	idx = packed->idx_failure;
-#endif
 	while (!list_empty(&packed->list)) {
 		prq = list_entry_rq(packed->list.next);
 		if (idx == i) {
@@ -2616,7 +2596,8 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *rqc)
 		return 0;
 
 	if (rqc) {
-		if ((card->ext_csd.bkops_en) && (rq_data_dir(rqc) == WRITE))
+		if (mmc_card_get_bkops_en_manual(card) &&
+			(rq_data_dir(rqc) == WRITE))
 			card->bkops_info.sectors_changed += blk_rq_sectors(rqc);
 		reqs = mmc_blk_prep_packed_list(mq, rqc);
 	}
@@ -2831,7 +2812,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 	if (mmc_bus_needs_resume(card->host))
 		mmc_resume_bus(card->host);
 #endif
-		if (card->ext_csd.bkops_en)
+		if (mmc_card_get_bkops_en_manual(card))
 			mmc_stop_bkops(card);
 	}
 
@@ -3400,14 +3381,7 @@ static void mmc_blk_shutdown(struct mmc_card *card)
 		mmc_claim_host(card->host);
 		mmc_stop_bkops(card);
 		mmc_release_host(card->host);
-#if defined(CONFIG_LGE_MMC_PON_SHORT)
-        if (card->issue_long_pon)
-            mmc_send_long_pon(card);
-        else
-            mmc_send_short_pon(card);
-#else
 		mmc_send_long_pon(card);
-#endif
 		mmc_rpm_release(card->host, &card->dev);
 	}
 	return;

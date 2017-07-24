@@ -1648,14 +1648,6 @@ static void __init remap_pages(void)
 		if (phys_start >= phys_end)
 			break;
 
-#ifdef CONFIG_FORCE_PAGES_CHECK_VA
-		if ((addr < PAGE_OFFSET) || (addr >= end)) {
-			pr_err("Invalid page address, start : 0x%08lx[VA], end : 0x%08lx[VA]\n", addr, end);
-
-			break;
-		}
-#endif
-
 		pmd = pmd_offset(
 			pud_offset(pgd_offset(&init_mm, addr), addr), addr);
 

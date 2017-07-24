@@ -241,16 +241,4 @@ config THERMAL_QPNP_ADC_TM
 	  Disabling the thermal zone device via the mode file results in disabling
 	  the sensor. Also able to set threshold temperature for both hot and cold
 	  and update when a threshold is reached.
-
-config LGE_PM_THERMAL_SET_KTM_PARAMETER
-	tristate "LGE thermal set kernel thermal mitigation temp"
-	default n
-	help
-	  This enables KTM PARAMETER setting
-
-config LGE_PM_THERMAL_LITTLE_FREQ
-	tristate "LGE thermal set little cluster mitigation frequency
-	default n
-	help
-	  This set litlle cluster mitigation frequency
 endif

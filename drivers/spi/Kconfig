@@ -541,11 +541,6 @@ config SPI_SPIDEV
 	  Note that this application programming interface is EXPERIMENTAL
 	  and hence SUBJECT TO CHANGE WITHOUT NOTICE while it stabilizes.
 
-config SPI_PEEL_IR
-	tristate "IR Driver for Peel platform"
-	help
-	  This adds support for Peel's IR driver
-
 config SPI_TLE62X0
 	tristate "Infineon TLE62X0 (for power switching)"
 	depends on SYSFS

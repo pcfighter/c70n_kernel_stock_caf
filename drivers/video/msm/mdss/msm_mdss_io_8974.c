@@ -26,10 +26,6 @@
 
 static struct dsi_clk_desc dsi_pclk;
 
-#if defined(CONFIG_LGE_MODULE_DETECT)
-extern int lge_dual_panel;
-#endif
-
 void mdss_dsi_phy_sw_reset(struct mdss_dsi_ctrl_pdata *ctrl)
 {
 	u32 ctrl_rev;
@@ -195,13 +191,6 @@ static void mdss_dsi_28nm_phy_init(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 		/* Regulator ctrl 0 */
 		MIPI_OUTP((temp_ctrl->phy_io.base) + 0x280, pd->regulator[0]);
 	}
-#if defined(CONFIG_LGD_INCELL_VIDEO_WVGA_PT_PANEL) || defined(CONFIG_LGE_MIPI_DSI_BYD_ILI9806E_WVGA) || defined(CONFIG_LGE_MIPI_DSI_LGD_NT35521_E7II_WXGA)
-        /*To set ldo mode instead of smps mode*/
-        if (ctrl_pdata->ldo_mode) {
-                MIPI_OUTP((ctrl_pdata->phy_io.base) + 0x0280, 0x0);
-                MIPI_OUTP((ctrl_pdata->phy_io.base) + 0x1dc, 0x5d);/* 0x45 */
-        }
-#endif
 
 	off = 0x0140;	/* phy timing ctrl 0 - 11 */
 	for (i = 0; i < 12; i++) {
@@ -787,6 +776,20 @@ static void mdss_dsi_bus_clk_stop(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 	clk_disable_unprepare(ctrl_pdata->mdp_core_clk);
 }
 
+static int mdss_dsi_ulp_escclk_prepare(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	int rc = 0;
+
+	rc = clk_prepare(ctrl_pdata->esc_clk);
+	if (rc) {
+		pr_err("%s: Failed to prepare dsi esc clk\n", __func__);
+		goto esc_clk_err;
+	}
+
+esc_clk_err:
+	return rc;
+}
+
 static int mdss_dsi_link_clk_prepare(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
 	int rc = 0;
@@ -831,6 +834,38 @@ static void mdss_dsi_link_clk_unprepare(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 	clk_unprepare(ctrl_pdata->esc_clk);
 }
 
+static void mdss_dsi_ulp_escclk_unprepare(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	if (!ctrl_pdata) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return;
+	}
+	clk_unprepare(ctrl_pdata->esc_clk);
+}
+
+static int mdss_dsi_ulp_escclk_set_rate(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	u32 esc_clk_rate = 19200000;
+	int rc = 0;
+
+	if (!ctrl_pdata) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return -EINVAL;
+	}
+
+	if (!ctrl_pdata->panel_data.panel_info.cont_splash_enabled) {
+		rc = clk_set_rate(ctrl_pdata->esc_clk, esc_clk_rate);
+		if (rc) {
+			pr_err("%s: dsi_esc_clk - clk_set_rate failed\n",
+				__func__);
+			goto error;
+		}
+	}
+
+error:
+	return rc;
+}
+
 static int mdss_dsi_link_clk_set_rate(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
 	u32 esc_clk_rate = 19200000;
@@ -870,6 +905,38 @@ static int mdss_dsi_link_clk_set_rate(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 
 error:
 	return rc;
+}
+
+static int mdss_dsi_ulp_escclk_enable(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	int rc = 0;
+
+	if (!ctrl_pdata) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return -EINVAL;
+	}
+
+	pr_debug("%s: ndx=%d\n", __func__, ctrl_pdata->ndx);
+
+	rc = clk_enable(ctrl_pdata->esc_clk);
+	if (rc) {
+		pr_err("%s: Failed to enable dsi esc clk\n", __func__);
+		goto esc_clk_err;
+	}
+
+esc_clk_err:
+	return rc;
+}
+
+static void mdss_dsi_ulp_escclk_disable(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	if (!ctrl_pdata) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return;
+	}
+
+	pr_debug("%s: ndx=%d\n", __func__, ctrl_pdata->ndx);
+	clk_disable(ctrl_pdata->esc_clk);
 }
 
 static int mdss_dsi_link_clk_enable(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
@@ -925,6 +992,8 @@ static void mdss_dsi_link_clk_disable(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 	clk_disable(ctrl_pdata->byte_clk);
 }
 
+
+
 static int mdss_dsi_link_clk_start(struct mdss_dsi_ctrl_pdata *ctrl)
 {
 	int rc = 0;
@@ -962,6 +1031,57 @@ static void mdss_dsi_link_clk_stop(struct mdss_dsi_ctrl_pdata *ctrl)
 }
 
 /**
+ * mdss_dsi_ulp_escclk_start() - Enable DSI controller clock for ULPS transition
+ * @ctrl: pointer to DSI controller structure
+ *
+ * This function is used for enable DSI controller clock when all MDSS and DSI
+ * clocks off and there refcounts are zero. escape clock is enabled without
+ * updating refcount to handle the ULPS entry during core_power ON.
+ */
+static int mdss_dsi_ulp_escclk_start(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+	int rc = 0;
+
+	rc = mdss_dsi_ulp_escclk_set_rate(ctrl);
+	if (rc) {
+		pr_err("%s: failed to set clk rates. rc=%d\n",
+			__func__, rc);
+		goto error;
+	}
+
+	rc = mdss_dsi_ulp_escclk_prepare(ctrl);
+	if (rc) {
+		pr_err("%s: failed to prepare clks. rc=%d\n",
+			__func__, rc);
+		goto error;
+	}
+
+	rc = mdss_dsi_ulp_escclk_enable(ctrl);
+	if (rc) {
+		pr_err("%s: failed to enable clks. rc=%d\n",
+			__func__, rc);
+		mdss_dsi_ulp_escclk_unprepare(ctrl);
+		goto error;
+	}
+
+error:
+	return rc;
+}
+
+/**
+ * mdss_dsi_ulp_escclk_stop() - Disable DSI controller clock after ULPS transition
+ * @ctrl: pointer to DSI controller structure
+ *
+ * This function is used for disabling DSI controller after handling ULPS entry,
+ * when escape clock is turned on by mdss_dsi_ulp_escclk_start() function.
+ */
+static void mdss_dsi_ulp_escclk_stop(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+	mdss_dsi_ulp_escclk_disable(ctrl);
+	mdss_dsi_ulp_escclk_unprepare(ctrl);
+}
+
+/**
  * mdss_dsi_ulps_config() - Program DSI lanes to enter/exit ULPS mode
  * @ctrl: pointer to DSI controller structure
  * @enable: 1 to enter ULPS, 0 to exit ULPS
@@ -979,9 +1099,6 @@ static int mdss_dsi_ulps_config(struct mdss_dsi_ctrl_pdata *ctrl,
 	struct mipi_panel_info *mipi;
 	u32 lane_status = 0;
 	u32 active_lanes = 0;
-#if defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL)
-	u32 tmp =0;
-#endif
 
 	if (!ctrl) {
 		pr_err("%s: invalid input\n", __func__);
@@ -1014,20 +1131,6 @@ static int mdss_dsi_ulps_config(struct mdss_dsi_ctrl_pdata *ctrl,
 		return 0;
 	}
 
-#if defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL)
-#if defined(CONFIG_LGD_INCELL_DB7400_VIDEO_HD_DUAL_PANEL)
-	if (lge_dual_panel != SECONDARY_MODULE) {
-#endif
-/* QCT Patch : Case 01813974, When suspend, ULPS LP10 state is not present. */
-/* So, QCT give the patch making LP10 state like below */
-	tmp = MIPI_INP(ctrl->ctrl_base + 0x00AC);
-	MIPI_OUTP(ctrl->ctrl_base + 0x0AC, tmp & ~BIT(28));
-	udelay(100);
-	//pr_err("%pS: enable %d, ctrl->ulps %d\n",  __builtin_return_address(0), enable, ctrl->ulps);
-#if defined(CONFIG_LGD_INCELL_DB7400_VIDEO_HD_DUAL_PANEL)
-	}
-#endif
-#endif //CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL
 	/* clock lane will always be programmed for ulps */
 	active_lanes = BIT(4);
 	/*
@@ -1144,31 +1247,15 @@ static int mdss_dsi_clamp_ctrl(struct mdss_dsi_ctrl_pdata *ctrl, int enable)
 	phyrst_reg_off = ctrl->ulps_phyrst_ctrl_off;
 	mipi = &ctrl->panel_data.panel_info.mipi;
 
+	/* DSI lane clamp mask */
+	clamp_reg = mipi->phy_lane_clamp_mask;
 	/* clock lane will always be clamped */
-	clamp_reg = BIT(9);
+	clamp_reg |= BIT(9);
+
+	/* Enable ULPS request bit of active Lanes */
 	if (ctrl->ulps)
-		clamp_reg |= BIT(8);
-	/* make a note of all active data lanes which need to be clamped */
-	if (mipi->data_lane0) {
-		clamp_reg |= BIT(7);
-		if (ctrl->ulps)
-			clamp_reg |= BIT(6);
-	}
-	if (mipi->data_lane1) {
-		clamp_reg |= BIT(5);
-		if (ctrl->ulps)
-			clamp_reg |= BIT(4);
-	}
-	if (mipi->data_lane2) {
-		clamp_reg |= BIT(3);
-		if (ctrl->ulps)
-			clamp_reg |= BIT(2);
-	}
-	if (mipi->data_lane3) {
-		clamp_reg |= BIT(1);
-		if (ctrl->ulps)
-			clamp_reg |= BIT(0);
-	}
+		clamp_reg |= clamp_reg >> 1;
+
 	pr_debug("%s: called for ctrl%d, enable=%d, clamp_reg=0x%08x\n",
 		__func__, ctrl->ndx, enable, clamp_reg);
 	if (enable && !ctrl->mmss_clamp) {
@@ -1263,6 +1350,9 @@ static int mdss_dsi_core_power_ctrl(struct mdss_dsi_ctrl_pdata *ctrl,
 			}
 			ctrl->core_power = true;
 		}
+		/* Disable dynamic clock gating*/
+		if (ctrl->mdss_util->dyn_clk_gating_ctrl)
+			ctrl->mdss_util->dyn_clk_gating_ctrl(0);
 
 		rc = mdss_dsi_bus_clk_start(ctrl);
 		if (rc) {
@@ -1294,7 +1384,17 @@ static int mdss_dsi_core_power_ctrl(struct mdss_dsi_ctrl_pdata *ctrl,
 			 * Also, reset the ulps flag so that ulps_config
 			 * function would reconfigure the controller state to
 			 * ULPS.
+			 *
+			 * Controller clock (escape clock) need to be turned on
+			 * in order for the controller to process ULPS entry
+			 * request.
 			 */
+			rc = mdss_dsi_ulp_escclk_start(ctrl);
+			if (rc) {
+				pr_err("%s: Failed to start esc clocks. rc=%d\n",
+					   __func__, rc);
+				goto error_bus_clk_start;
+			}
 			ctrl->ulps = false;
 			rc = mdss_dsi_ulps_config(ctrl, 1);
 			if (rc) {
@@ -1302,6 +1402,7 @@ static int mdss_dsi_core_power_ctrl(struct mdss_dsi_ctrl_pdata *ctrl,
 					__func__, rc);
 				goto error_ulps;
 			}
+			mdss_dsi_ulp_escclk_stop(ctrl);
 		}
 
 		rc = mdss_dsi_clamp_ctrl(ctrl, 0);

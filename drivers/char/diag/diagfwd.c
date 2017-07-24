@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -39,7 +39,6 @@
 #include "diag_masks.h"
 #include "diag_usb.h"
 #include "diag_mux.h"
-#include "mts_tty.h"
 
 #define STM_CMD_VERSION_OFFSET	4
 #define STM_CMD_MASK_OFFSET	5
@@ -51,49 +50,6 @@
 #define STM_RSP_NUM_BYTES		9
 
 #define SMD_DRAIN_BUF_SIZE 4096
-
-#ifdef CONFIG_LGE_DIAG_ENABLE
-#define DIAG_ENABLE_DEBUG 0
-static int diag_enable_status = 0;
-typedef struct {
-	unsigned int hw_rev;	/* rev_type */
-	char model_name[10];	/* MODEL NAME */
-	char diag_enable;		/* diag enable for TRF/SPR */
-} lge_hw_smem_id0_type;
-
-int lge_diag_get_smem_value(void)
-{
-	int smem_size = 0;
-	lge_hw_smem_id0_type* lge_hw_smem_id0_ptr = (lge_hw_smem_id0_type *)
-			(smem_get_entry(SMEM_ID_VENDOR0, &smem_size, 0, 0));
-#if DIAG_ENABLE_DEBUG
-	pr_info("Diag enable status: %d\n", lge_hw_smem_id0_ptr->diag_enable);
-#endif
-
-	if (lge_hw_smem_id0_ptr != NULL) {
-#if DIAG_ENABLE_DEBUG
-		pr_info("SMEM_SIZE: %d\n", smem_size);
-#endif
-		return lge_hw_smem_id0_ptr->diag_enable;
-	} else {
-		return 0;
-	}
-}
-
-int set_diag_enable_status(int enable)
-{
-#if DIAG_ENABLE_DEBUG
-	pr_info("%s, enable: %d\n", __func__, enable);
-#endif
-	diag_enable_status = enable;
-
-	return 0;
-}
-#endif
-
-#ifdef CONFIG_LGE_DM_APP
-#include "lg_dm_tty.h"
-#endif
 
 int diag_debug_buf_idx;
 unsigned char diag_debug_buf[1024];
@@ -397,17 +353,6 @@ static int check_bufsize_for_encoding(struct diag_smd_info *smd_info, void *buf,
 	return buf_size;
 }
 
-static void mts_smd_reset_buf(struct diag_smd_info *smd_info)
-{
-	if (!smd_info)
-		return;
-
-	if (smd_info->type == SMD_DATA_TYPE)
-		queue_work(smd_info->wq, &(smd_info->diag_read_smd_work));
-	else
-		queue_work(driver->diag_wq, &(smd_info->diag_read_smd_work));
-}
-
 /* Process the data read from the smd data channel */
 int diag_process_smd_read_data(struct diag_smd_info *smd_info, void *buf,
 			       int total_recd)
@@ -478,15 +423,6 @@ int diag_process_smd_read_data(struct diag_smd_info *smd_info, void *buf,
 	}
 
 	if (write_length > 0) {
-		if (mts_tty->run) {
-			if (smd_info->type == SMD_DATA_TYPE) {
-				spin_lock_irqsave(&smd_info->in_busy_lock, flags);
-				mts_tty_process(write_buf, write_length);
-				spin_unlock_irqrestore(&smd_info->in_busy_lock, flags);
-				mts_smd_reset_buf(smd_info);
-			}
-			return 0;
-		}
 		spin_lock_irqsave(&smd_info->in_busy_lock, flags);
 		*in_busy_ptr = 1;
 		spin_unlock_irqrestore(&smd_info->in_busy_lock, flags);
@@ -757,22 +693,6 @@ void diag_smd_send_req(struct diag_smd_info *smd_info)
 		(driver->logging_mode == MEMORY_DEVICE_MODE)) {
 			chk_logging_wakeup();
 	}
-
-#ifdef CONFIG_LGE_DM_APP
-    else if (smd_info->ch && (driver->logging_mode == DM_APP_MODE)) {
-        chk_logging_wakeup();
-        if( buf != NULL && smd_info->in_busy_1 == 0){
-            smd_info->in_busy_1 = 1;
-        }
-        else if(buf != NULL && smd_info->in_busy_2 == 0){
-            smd_info->in_busy_2 = 1;
-        }
-
-        lge_dm_tty->set_logging = 1;
-        wake_up_interruptible(&lge_dm_tty->waitq);
-    }
-#endif
-
 	return;
 
 fail_return:
@@ -831,17 +751,6 @@ void encode_rsp_and_send(int buf_length)
 		 */
 		if (driver->logging_mode == MEMORY_DEVICE_MODE)
 			chk_logging_wakeup();
-
-#ifdef CONFIG_LGE_DM_APP
-        if (driver->logging_mode == DM_APP_MODE)
-        {
-            chk_logging_wakeup();
-
-            lge_dm_tty->set_logging = 1;
-            wake_up_interruptible(&lge_dm_tty->waitq);
-        }
-#endif
-
 	}
 	if (driver->rsp_buf_busy) {
 		pr_err("diag: unable to get hold of response buffer\n");
@@ -859,15 +768,8 @@ void encode_rsp_and_send(int buf_length)
 	enc.dest_last = (void *)(rsp_ptr + HDLC_OUT_BUF_SIZE - 1);
 	diag_hdlc_encode(&send, &enc);
 	driver->encoded_rsp_len = (int)(enc.dest - (void *)rsp_ptr);
-	if (mts_tty->run) {
-		if (rsp_ptr[0] != 0xFA) {
-			err = 1;
-			goto err_out;
-		}
-	}
 	err = diag_mux_write(DIAG_LOCAL_PROC, rsp_ptr, driver->encoded_rsp_len,
 			     driver->rsp_buf_ctxt);
-err_out:
 	if (err) {
 		pr_err("diag: In %s, Unable to write to device, err: %d\n",
 			__func__, err);
@@ -908,7 +810,7 @@ void diag_update_pkt_buffer(unsigned char *buf, int type)
 	}
 
 	if (!ptr || length == 0) {
-		pr_err("diag: Invalid ptr %p and length %d in %s",
+		pr_err("diag: Invalid ptr %pK and length %d in %s",
 						ptr, length, __func__);
 		return;
 	}
@@ -1021,7 +923,7 @@ int diag_process_stm_cmd(unsigned char *buf, unsigned char *dest_buf)
 	int i;
 
 	if (!buf || !dest_buf) {
-		pr_err("diag: Invalid pointers buf: %p, dest_buf %p in %s\n",
+		pr_err("diag: Invalid pointers buf: %pK, dest_buf %pK in %s\n",
 		       buf, dest_buf, __func__);
 		return -EIO;
 	}
@@ -1109,7 +1011,7 @@ int diag_cmd_log_on_demand(unsigned char *src_buf, int src_len,
 		return 0;
 
 	if (!src_buf || !dest_buf || src_len <= 0 || dest_len <= 0) {
-		pr_err("diag: Invalid input in %s, src_buf: %p, src_len: %d, dest_buf: %p, dest_len: %d",
+		pr_err("diag: Invalid input in %s, src_buf: %pK, src_len: %d, dest_buf: %pK, dest_len: %d",
 		       __func__, src_buf, src_len, dest_buf, dest_len);
 		return -EINVAL;
 	}
@@ -1166,42 +1068,6 @@ int diag_check_common_cmd(struct diag_pkt_header_t *header)
 	return 0;
 }
 
-#if defined(CONFIG_LGE_USB_DIAG_LOCK)
-extern int get_diag_enable(void);
-#define DIAG_ENABLE			1
-#define DIAG_DISABLE			0
-#define COMMAND_PORT_LOCK		0xA1
-#define COMMAND_WEB_DOWNLOAD		0xEF
-#define COMMAND_ASYNC_HDLC_FLAG		0x7E
-#define COMMAND_DLOAD_RESET		0x3A
-#define COMMAND_TEST_MODE		0xFA
-#define COMMAND_TEST_MODE_RESET		0x29
-#define COMMAND_VZW_AT_LOCK		0xF8
-
-int is_filtering_command(char *buf)
-{
-	if (buf == NULL)
-		return 0;
-
-	switch(buf[0]) {
-		case COMMAND_PORT_LOCK :
-#if !defined(CONFIG_LGE_USB_DIAG_LOCK_SPR)
-		case COMMAND_WEB_DOWNLOAD :
-		case COMMAND_ASYNC_HDLC_FLAG :
-		case COMMAND_DLOAD_RESET :
-		case COMMAND_TEST_MODE :
-		case COMMAND_TEST_MODE_RESET :
-		case COMMAND_VZW_AT_LOCK :
-#endif
-			return 1;
-		default:
-			break;
-	}
-
-	return 0;
-}
-#endif
-
 int diag_process_apps_pkt(unsigned char *buf, int len)
 {
 	uint16_t subsys_cmd_code;
@@ -1212,21 +1078,6 @@ int diag_process_apps_pkt(unsigned char *buf, int len)
 	int mask_ret;
 	int status = 0;
 	int write_len = 0;
-#ifdef CONFIG_LGE_DIAG_ENABLE
-	if (diag_enable_status != 1 && buf[0] != 0xA1) {
-#if DIAG_ENABLE_DEBUG
-		pr_info("%s: diag_enable_status = %d\n",__func__,diag_enable_status);
-#endif
-		driver->apps_rsp_buf[0] = 24;
-		encode_rsp_and_send(0);
-		return 0;
-	}
-#endif
-
-#if defined(CONFIG_LGE_USB_DIAG_LOCK)
-	if (!is_filtering_command(buf) && (get_diag_enable() == DIAG_DISABLE))
-		return 0;
-#endif
 
 	/* Check if the command is a supported mask command */
 	mask_ret = diag_process_apps_masks(buf, len);
@@ -1599,17 +1450,6 @@ static int diagfwd_mux_open(int id, int mode)
 	int i;
 	unsigned long flags;
 
-#ifdef CONFIG_LGE_DM_APP
-    if (driver->logging_mode == DM_APP_MODE) {
-        if (mode == DIAG_USB_MODE) {
-            printk(KERN_DEBUG "diag: diagfwd_mux_open USB connected in DM_APP_MODE\n");
-            driver->usb_connected = 1;
-        }
-
-        return 0;
-    }
-#endif
-
 	if (driver->rsp_buf_busy) {
 		/*
 		 * When a client switches from callback mode to USB mode
@@ -1656,17 +1496,6 @@ static int diagfwd_mux_close(int id, int mode)
 	unsigned long flags;
 	struct diag_smd_info *smd_info = NULL;
 
-#ifdef CONFIG_LGE_DM_APP
-    if (driver->logging_mode == DM_APP_MODE) {
-        if (mode == DIAG_USB_MODE) {
-            printk(KERN_DEBUG "diag: diagfwd_mux_close USB disconnected in DM_APP_MODE\n");
-            driver->usb_connected = 0;
-        }
-
-        return 0;
-    }
-#endif
-
 	switch (mode) {
 	case DIAG_USB_MODE:
 		driver->usb_connected = 0;
@@ -1710,22 +1539,6 @@ static int diagfwd_mux_read_done(unsigned char *buf, int len, int ctxt)
 
 	diag_process_hdlc(buf, len);
 	diag_mux_queue_read(ctxt);
-
-#ifdef CONFIG_LGE_DM_APP
-    if (driver->logging_mode == DM_APP_MODE) {
-        /* only diag cmd 0xEF for supporting web download tool */
-        if((*(buf) == 0xEF) && (*(buf + 1) == 0x00)) {
-            queue_work(lge_dm_tty->dm_wq,
-                &(lge_dm_tty->dm_dload_work));
-
-            mutex_lock(&driver->diagchar_mutex);
-            driver->logging_mode = USB_MODE;
-            mutex_unlock(&driver->diagchar_mutex);
-        }
-
-    }
-#endif
-
 	return 0;
 }
 
@@ -1750,14 +1563,6 @@ static int diagfwd_mux_write_done(unsigned char *buf, int len, int buf_ctxt,
 		if (peripheral >= 0 && peripheral < NUM_SMD_DATA_CHANNELS) {
 			smd_info = &driver->smd_data[peripheral];
 			diag_smd_reset_buf(smd_info, num);
-
-#ifdef CONFIG_LGE_DM_APP
-            if (driver->logging_mode == DM_APP_MODE) {
-                flush_workqueue(smd_info->wq);
-                wake_up(&driver->smd_wait_q);
-            }
-#endif
-
 		} else if (peripheral == APPS_DATA) {
 			diagmem_free(driver, (unsigned char *)buf,
 				     POOL_TYPE_HDLC);
@@ -1844,14 +1649,6 @@ void diag_smd_notify(void *ctxt, unsigned event)
 		     driver->logging_mode == MEMORY_DEVICE_MODE)) {
 			diag_ws_on_notify();
 		}
-
-#ifdef CONFIG_LGE_DM_APP
-        else if (smd_info->type == SMD_DATA_TYPE &&
-            driver->logging_mode == DM_APP_MODE) {
-            diag_ws_on_notify();
-        }
-#endif
-
 	}
 
 	wake_up(&driver->smd_wait_q);
@@ -2241,7 +2038,7 @@ int diag_smd_write(struct diag_smd_info *smd_info, void *buf, int len)
 	int max_retries = 3;
 
 	if (!smd_info || !buf || len <= 0) {
-		pr_err_ratelimited("diag: In %s, invalid params, smd_info: %p, buf: %p, len: %d\n",
+		pr_err_ratelimited("diag: In %s, invalid params, smd_info: %pK, buf: %pK, len: %d\n",
 				   __func__, smd_info, buf, len);
 		return -EINVAL;
 	}
@@ -2382,9 +2179,6 @@ int diagfwd_init(void)
 		pr_err("diag: Unable to register with USB, err: %d\n", ret);
 		goto err;
 	}
-#ifdef CONFIG_LGE_DIAG_ENABLE
-	set_diag_enable_status(lge_diag_get_smem_value());
-#endif
 	platform_driver_register(&msm_smd_ch1_driver);
 	platform_driver_register(&diag_smd_lite_driver);
 

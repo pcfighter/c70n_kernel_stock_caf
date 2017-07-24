@@ -651,69 +651,20 @@ static void print_vmalloc_lowmem_info(void)
 
 		if (prev_reg == NULL) {
 			prev_reg = reg;
-			if (end_phys > arm_lowmem_limit) {
 
-				if (start_phys < arm_lowmem_limit) {
-					pr_notice(
-					"	   vmalloc : 0x%08lx - 0x%08lx   (%4ld MB)\n",
-					MLM(
-					(unsigned long)__va(arm_lowmem_limit),
-					VMALLOC_END));
-
-					pr_notice(
-					"	   lowmem  : 0x%08lx - 0x%08lx   (%4ld MB)\n",
-					MLM((unsigned long)__va(start_phys),
-					(unsigned long)__va(arm_lowmem_limit)));
-				} else {
-#ifdef CONFIG_ENABLE_VMALLOC_SAVING_CHECK_VA
-					if (((unsigned long)__va(start_phys) < PAGE_OFFSET) || ((unsigned long)__va(start_phys) >= (unsigned long)__va(end_phys))) {
-						continue;
-					}
-#endif
-					pr_notice(
-					"	   vmalloc : 0x%08lx - 0x%08lx   (%4ld MB)\n",
-					MLM((unsigned long)__va(start_phys),
-					(unsigned long)__va(end_phys)));
-
-				}
-			} else {
-				pr_notice(
-			    "	   lowmem  : 0x%08lx - 0x%08lx   (%4ld MB)\n",
-			    MLM((unsigned long)__va(start_phys),
-			    (unsigned long)__va(end_phys)));
-
-			}
+			pr_notice(
+			"	   lowmem  : 0x%08lx - 0x%08lx   (%4ld MB)\n",
+			MLM((unsigned long)__va(start_phys),
+			(unsigned long)__va(end_phys)));
 
 			continue;
 		}
 
-		start_phys = reg->base + reg->size;
-		end_phys = prev_reg->base;
-
-#ifdef CONFIG_ENABLE_VMALLOC_SAVING_CHECK_VA
-		if ((unsigned long)__va(end_phys) < PAGE_OFFSET) {
-			end_phys = __pa(VMALLOC_END);
-			
-			pr_notice(
-			"	   vmalloc : 0x%08lx - 0x%08lx   (%4ld MB)\n",
-			MLM((unsigned long)__va(start_phys),
-			(unsigned long)__va(end_phys)));
-
-			prev_reg = reg;
-			continue;
-		}
-		else {
-			pr_notice(
-			"	   vmalloc : 0x%08lx - 0x%08lx   (%4ld MB)\n",
-			MLM((unsigned long)__va(start_phys),
-			(unsigned long)__va(end_phys)));
-		}
-#else
-        pr_notice(
+		pr_notice(
 		"	   vmalloc : 0x%08lx - 0x%08lx   (%4ld MB)\n",
 		MLM((unsigned long)__va(end_phys),
 		(unsigned long)__va(prev_reg->base)));
-#endif
+
 
 		pr_notice(
 		"	   lowmem  : 0x%08lx - 0x%08lx   (%4ld MB)\n",
@@ -860,15 +811,13 @@ static int keep_initrd;
 
 void free_initrd_mem(unsigned long start, unsigned long end)
 {
-	if (!keep_initrd) {
-		/* CONFIG_MACH_LGE Change pulled from Main Kernel */
-		if (start == initrd_start)
-			start = round_down(start, PAGE_SIZE);
-		if(end == initrd_end)
-			end = round_up(end, PAGE_SIZE);
+	unsigned long reclaimed_initrd_mem;
 
+	if (!keep_initrd) {
 		poison_init_mem((void *)start, PAGE_ALIGN(end) - start);
-		free_reserved_area(start, end, 0, "initrd");
+		reclaimed_initrd_mem = free_reserved_area(start, end, 0,
+				"initrd");
+		totalram_pages += reclaimed_initrd_mem;
 	}
 }
 

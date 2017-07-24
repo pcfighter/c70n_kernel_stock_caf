@@ -25,14 +25,6 @@
 #include <linux/log2.h>
 #include <linux/qpnp/power-on.h>
 
-#ifdef CONFIG_LGE_PM_PWR_KEY_FOR_CHG_LOGO
-#ifdef CONFIG_64BIT
-#include <soc/qcom/lge/board_lge.h>
-#else
-#include <mach/board_lge.h>
-#endif
-#endif
-
 #define CREATE_MASK(NUM_BITS, POS) \
 	((unsigned char) (((1 << (NUM_BITS)) - 1) << (POS)))
 #define PON_MASK(MSB_BIT, LSB_BIT) \
@@ -267,7 +259,7 @@ int qpnp_pon_set_restart_reason(enum pon_restart_reason reason)
 		return 0;
 
 	rc = qpnp_pon_masked_write(pon, QPNP_PON_SOFT_RB_SPARE(pon->base),
-					PON_MASK(7, 5), (reason << 5));
+					PON_MASK(7, 2), (reason << 2));
 	if (rc)
 		dev_err(&pon->spmi->dev,
 				"Unable to write to addr=%x, rc(%d)\n",
@@ -557,14 +549,6 @@ qpnp_get_cfg(struct qpnp_pon *pon, u32 pon_type)
 	return NULL;
 }
 
-#ifdef CONFIG_LGE_PM_PWR_KEY_FOR_CHG_LOGO
-void qpnp_pwr_key_action_set_for_chg_logo(struct input_dev *dev, unsigned int code, int value);
-#if defined(CONFIG_MACH_MSM8916_C100N_KR)  || defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || \
-    defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM)
-hw_rev_type hw_rev;
-#endif
-#endif
-
 static int
 qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 {
@@ -606,10 +590,6 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 		return -EINVAL;
 	}
 
-#ifdef CONFIG_LGE_PM
-	pr_err("%s:code(%d), value(%d)\n",__func__, cfg->key_code, (pon_rt_sts & pon_rt_bit));
-#endif
-
 	pr_debug("PMIC input: code=%d, sts=0x%hhx\n",
 					cfg->key_code, pon_rt_sts);
 	key_status = pon_rt_sts & pon_rt_bit;
@@ -617,30 +597,6 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	/* simulate press event in case release event occured
 	 * without a press event
 	 */
-
-
-#ifdef CONFIG_LGE_PM_PWR_KEY_FOR_CHG_LOGO
-#if defined(CONFIG_MACH_MSM8916_C100N_KR) || defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || \
-    defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM)
-	if((lge_get_boot_mode() == LGE_BOOT_MODE_CHARGERLOGO) && (hw_rev == HW_REV_A)) {
-#else
-	if(lge_get_boot_mode() == LGE_BOOT_MODE_CHARGERLOGO) {
-#endif
-		pr_info("=========== [CHG LOGO MODE] =========== Keycode : %d PON_RT_STS : %d PON_RT_BIT :%d \n",cfg->key_code,pon_rt_sts,pon_rt_bit);
-		qpnp_pwr_key_action_set_for_chg_logo(pon->pon_input, cfg->key_code,
-					(pon_rt_sts & pon_rt_bit));
-	}else{
-		if (!cfg->old_state && !key_status) {
-			input_report_key(pon->pon_input, cfg->key_code, 1);
-			input_sync(pon->pon_input);
-		}
-
-		input_report_key(pon->pon_input, cfg->key_code, key_status);
-		input_sync(pon->pon_input);
-
-		cfg->old_state = !!key_status;
-	}
-#else
 	if (!cfg->old_state && !key_status) {
 		input_report_key(pon->pon_input, cfg->key_code, 1);
 		input_sync(pon->pon_input);
@@ -650,7 +606,6 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	input_sync(pon->pon_input);
 
 	cfg->old_state = !!key_status;
-#endif
 
 	return 0;
 }
@@ -1074,12 +1029,7 @@ static int qpnp_pon_config_init(struct qpnp_pon *pon)
 
 	/* iterate through the list of pon configs */
 	while ((pp = of_get_next_child(pon->spmi->dev.of_node, pp))) {
-#ifdef CONFIG_LGE_PM_HARDRESET_KEY_COMBINATION
-		if (!of_device_is_available(pp))
-			continue;
-		if (!of_device_is_available_revision(pp))
-			continue;
-#endif
+
 		cfg = &pon->pon_cfg[i++];
 
 		rc = of_property_read_u32(pp, "qcom,pon-type", &cfg->pon_type);
@@ -1369,9 +1319,6 @@ static int qpnp_pon_config_init(struct qpnp_pon *pon)
 					"Unable to disable S2 reset\n");
 				goto unreg_input_dev;
 			}
-#ifdef CONFIG_LGE_PM_HARDRESET_KEY_COMBINATION
-			usleep(100);
-#endif
 		}
 
 		rc = qpnp_pon_request_irqs(pon, cfg);
@@ -1557,18 +1504,9 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 	pon->spmi = spmi;
 
 	/* get the total number of pon configurations */
-#ifdef CONFIG_LGE_PM_HARDRESET_KEY_COMBINATION
-	while ((itr = of_get_next_child(spmi->dev.of_node, itr))){
-		if (!of_device_is_available(itr))
-			continue;
-		if (!of_device_is_available_revision(itr))
-			continue;
-		pon->num_pon_config++;
-        }
-#else
 	while ((itr = of_get_next_child(spmi->dev.of_node, itr)))
 		pon->num_pon_config++;
-#endif
+
 	if (!pon->num_pon_config) {
 		/* No PON config., do not register the driver */
 		dev_err(&spmi->dev, "No PON config. specified\n");
@@ -1747,17 +1685,6 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 					"qcom,store-hard-reset-reason");
 
 	qpnp_pon_debugfs_init(spmi);
-#if defined(CONFIG_LGE_PM_PWR_KEY_FOR_CHG_LOGO) && (defined(CONFIG_MACH_MSM8916_C100N_KR) || \
-    defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM))
-	hw_rev = lge_get_board_revno();
-#endif
-#if defined(CONFIG_MACH_MSM8916_YG_SKT_KR) || defined(CONFIG_MACH_MSM8916_C100N_KR) || \
-    defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM)
-	rc = qpnp_pon_input_dispatch(pon, PON_RESIN);
-	if (rc){
-		dev_err(&pon->spmi->dev, "Unable to send input event\n");
-	}
-#endif
 	return rc;
 }
 

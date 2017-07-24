@@ -1802,7 +1802,6 @@ choice
 
 config ENABLE_VMALLOC_SAVING
 	bool "Reclaim memory for each subsystem"
-	select ENABLE_VMALLOC_SAVING_CHECK_VA
 	help
 	  Enable this config to reclaim the virtual space belonging
 	  to any subsystem which is expected to have a lifetime of
@@ -1817,14 +1816,6 @@ config NO_VM_RECLAIM
 	  reclaimed by using any of the other two config options.
 
 endchoice
-
-config ENABLE_VMALLOC_SAVING_CHECK_VA
-	bool "Check virtual addresses of start and end to handle overflow"
-	help
-	  If any physical addresses are above 0xC0000000 in 32bit arch,
-	  their virtual address will meet overflow and they are set to 0x0XXXXXXX.
-	  Virtual address of start and end page address should be checked and reassigned
-	  in case overflow to display address range properly.
 
 config HOLES_IN_ZONE
 	def_bool n
@@ -2341,6 +2332,13 @@ config NEON
 	help
 	  Say Y to include support code for NEON, the ARMv7 Advanced SIMD
 	  Extension.
+
+config KERNEL_MODE_NEON
+	bool "Support for NEON in kernel mode"
+	default n
+	depends on NEON
+	help
+	  Say Y to include support for NEON in kernel mode.
 
 endmenu
 

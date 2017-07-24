@@ -77,7 +77,6 @@ config DEBUG_USER
 
 config FORCE_PAGES
 	bool "Force lowmem to be mapped with 4K pages"
-	select FORCE_PAGES_CHECK_VA
         help
           There are some advanced debug features that can only be done when
           memory is mapped with pages instead of sections. Enable this option
@@ -85,18 +84,6 @@ config FORCE_PAGES
           cost due to increased TLB pressure.
 
           If unsure say N.
-
-config FORCE_PAGES_CHECK_VA
-	bool "Check Virtual Address of start and end address"
-        help
-          FORCE_PAGES is intended to map lowmem pages.
-          However if any physical addresses are above 0xC0000000 in 32bit arch,
-          their virtual address will meet overflow and they are set to 0x0XXXXXXX.
-          This highmem address will be treated as lowmem and it results in Kernel BUG
-          at kernel/lib/ioremap.c:27!
-          Virtual address of start and end page address should be checked and skipped
-          remapping pages in case overflow.
-          
 
 config FREE_PAGES_RDONLY
 	bool "Set pages as read only while on the buddy list"

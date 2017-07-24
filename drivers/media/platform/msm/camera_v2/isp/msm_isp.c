@@ -273,26 +273,6 @@ static ssize_t ub_info_write(struct file *t_file,
 	return sizeof(struct msm_isp_ub_info);
 }
 
-/*LGE_CHANGE_S, make overflow intentionally for debbuging, 2015-01-15, kwangsik83.kim@lge.com*/
-static int debug_mk_overlfow_get(void *data, u64 *val)
-{
-	struct vfe_device *vfe_dev = (struct vfe_device *)data;
-
-	*val = vfe_dev->mk_overflow;
-	return 0;
-}
-
-static int debug_mk_overlfow_set(void  *data, u64 val)
-{
-	struct vfe_device *vfe_dev = (struct vfe_device *)data;
-	vfe_dev->mk_overflow = val;
-	return 0;
-}
-
-DEFINE_SIMPLE_ATTRIBUTE(mk_overflow_ops, debug_mk_overlfow_get,
-	debug_mk_overlfow_set, "%llu\n");
-/*LGE_CHANGE_E, make overflow intentionally for debbuging, 2015-01-15, kwangsik83.kim@lge.com*/
-
 static const struct file_operations vfe_debugfs_error = {
 	.open = vfe_debugfs_statistics_open,
 	.read = vfe_debugfs_statistics_read,
@@ -332,12 +312,6 @@ static int msm_isp_enable_debugfs(struct vfe_device *vfe_dev,
 	if (!debugfs_create_file("ub_info", S_IRUGO | S_IWUSR,
 		debugfs_base, vfe_dev, &ub_info_ops))
 		return -ENOMEM;
-
-	/*LGE_CHANGE_S, make overflow intentionally for debbuging, 2015-01-15, kwangsik83.kim@lge.com*/
-	if (!debugfs_create_file("mk_overflow", S_IRUGO | S_IWUSR,
-		debugfs_base, vfe_dev, &mk_overflow_ops))
-		return -ENOMEM;
-	/*LGE_CHANGE_E, make overflow intentionally for debbuging, 2015-01-15, kwangsik83.kim@lge.com*/
 
 	return 0;
 }

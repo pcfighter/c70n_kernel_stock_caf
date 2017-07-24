@@ -11,8 +11,7 @@
  */
 
 #include "msm8939-pinctrl.dtsi"
-//LGE_CHANGE comment out useless dts yt.jeon@lge.com 20141024
-/*#include "msm8939-camera-sensor-mtp.dtsi"*/
+#include "msm8939-camera-sensor-mtp.dtsi"
 
 &soc {
 	i2c@78b9000 { /* BLSP1 QUP5 */

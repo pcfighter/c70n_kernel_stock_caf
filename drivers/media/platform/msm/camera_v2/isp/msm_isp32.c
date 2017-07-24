@@ -1479,7 +1479,7 @@ static int msm_vfe32_get_platform_data(struct vfe_device *vfe_dev)
 	if (!vfe_dev->pdev->dev.of_node)
 		vfe_dev->iommu_ctx[1] = msm_iommu_get_ctx("vfe_misc");
 	else
-		vfe_dev->iommu_ctx[1] = msm_iommu_get_ctx("vfe0");
+		vfe_dev->iommu_ctx[1] = msm_iommu_get_ctx("vfe");
 
 	if (!vfe_dev->iommu_ctx[1]) {
 		pr_err("%s: no iommux ctx resource?\n", __func__);

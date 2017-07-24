@@ -118,11 +118,6 @@ phys_addr_t __init_memblock memblock_find_in_range_node(phys_addr_t start,
 			continue;
 
 		cand = round_down(this_end - size, align);
-#ifdef CONFIG_LGE_USE_6GBIT_CS_N_SDRAM
-		if (cand < memblock.current_limit && this_end >= memblock.current_limit)
-			cand = round_down(memblock.current_limit - size, align);
-#endif
-
 		if (cand >= this_start)
 			return cand;
 	}

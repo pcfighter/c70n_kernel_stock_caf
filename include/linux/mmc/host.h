@@ -510,11 +510,6 @@ void mmc_request_done(struct mmc_host *, struct mmc_request *);
 
 int mmc_cache_ctrl(struct mmc_host *, u8);
 
-#if defined (CONFIG_LGE_MMC_DEBUG)
-extern void print_mmc_cmd_info(struct mmc_host *host);
-extern void enqueue_mmc_cmd_resp_info (int cmd, int arg, int resp);
-#endif
-
 static inline void mmc_signal_sdio_irq(struct mmc_host *host)
 {
 	if (!host->sdio_irqs) {

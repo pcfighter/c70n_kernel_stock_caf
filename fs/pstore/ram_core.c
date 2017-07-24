@@ -371,11 +371,8 @@ static void *persistent_ram_iomap(phys_addr_t start, size_t size)
 			(unsigned long long)size, (unsigned long long)start);
 		return NULL;
 	}
-#ifdef CONFIG_64BIT
-	return ioremap_wc(start, size);
-#else
+
 	return ioremap(start, size);
-#endif
 }
 
 static int persistent_ram_buffer_map(phys_addr_t start, phys_addr_t size,
