@@ -26,7 +26,7 @@
 #include <linux/debugfs.h>
 #include <linux/msm_audio_ion.h>
 #include <linux/compat.h>
-#include <linux/mutex.h>
+#include <sound/q6core.h>
 #include "audio_utils_aio.h"
 #ifdef CONFIG_USE_DEV_CTRL_VOLUME
 #include <linux/qdsp6v2/audio_dev_ctl.h>
@@ -584,7 +584,6 @@ int audio_aio_release(struct inode *inode, struct file *file)
 {
 	struct q6audio_aio *audio = file->private_data;
 	pr_debug("%s[%pK]\n", __func__, audio);
-	mutex_lock(&lock);
 	mutex_lock(&audio->lock);
 	mutex_lock(&audio->read_lock);
 	mutex_lock(&audio->write_lock);
@@ -1525,7 +1524,27 @@ static long audio_aio_ioctl(struct file *file, unsigned int cmd,
 		memset(&stats, 0, sizeof(struct msm_audio_stats));
 		stats.byte_count = atomic_read(&audio->in_bytes);
 		stats.sample_count = atomic_read(&audio->in_samples);
-		rc = q6asm_get_session_time(audio->ac, &timestamp);
+		switch (q6core_get_avs_version()) {
+		case (Q6_SUBSYS_AVS2_7):
+		case (Q6_SUBSYS_AVS2_8):
+		{
+			rc = q6asm_get_session_time(audio->ac, &timestamp);
+			break;
+		}
+		case (Q6_SUBSYS_AVS2_6):
+		{
+			rc = q6asm_get_session_time_legacy(audio->ac,
+							   &timestamp);
+			break;
+		}
+		case (Q6_SUBSYS_INVALID):
+		default:
+		{
+			pr_err("%s: UNKNOWN AVS IMAGE VERSION\n", __func__);
+			rc = -EINVAL;
+			break;
+		}
+		}
 		if (rc >= 0)
 			memcpy(&stats.unused[0], &timestamp, sizeof(timestamp));
 		else
@@ -1821,7 +1840,27 @@ static long audio_aio_compat_ioctl(struct file *file, unsigned int cmd,
 		memset(&stats, 0, sizeof(struct msm_audio_stats32));
 		stats.byte_count = atomic_read(&audio->in_bytes);
 		stats.sample_count = atomic_read(&audio->in_samples);
-		rc = q6asm_get_session_time(audio->ac, &timestamp);
+		switch (q6core_get_avs_version()) {
+		case (Q6_SUBSYS_AVS2_7):
+		case (Q6_SUBSYS_AVS2_8):
+		{
+			rc = q6asm_get_session_time(audio->ac, &timestamp);
+			break;
+		}
+		case (Q6_SUBSYS_AVS2_6):
+		{
+			rc = q6asm_get_session_time_legacy(audio->ac,
+							   &timestamp);
+			break;
+		}
+		case (Q6_SUBSYS_INVALID):
+		default:
+		{
+			pr_err("%s: UNKNOWN AVS IMAGE VERSION\n", __func__);
+			rc = -EINVAL;
+			break;
+		}
+		}
 		if (rc >= 0)
 			memcpy(&stats.unused[0], &timestamp, sizeof(timestamp));
 		else
